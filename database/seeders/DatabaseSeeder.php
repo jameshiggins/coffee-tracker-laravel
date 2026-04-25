@@ -13,6 +13,6 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(RoasterSeeder::class);
-        $this->call(GlobalRoasterStubSeeder::class);
+        $this->call(CanadianRoasterStubSeeder::class);
     }
 }
