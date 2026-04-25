@@ -13,7 +13,11 @@ class Coffee extends Model
 
     protected $fillable = [
         'roaster_id', 'name', 'origin', 'process', 'roast_level',
-        'varietal', 'tasting_notes',
+        'varietal', 'tasting_notes', 'is_blend',
+    ];
+
+    protected $casts = [
+        'is_blend' => 'boolean',
     ];
 
     public function roaster(): BelongsTo

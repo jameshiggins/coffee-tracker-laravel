@@ -52,8 +52,10 @@ class ShopifyScraperTest extends TestCase
             ShopifyScraper::productsUrl('https://shop.example.com/some/page'));
     }
 
-    public function test_extracts_single_origin_coffees_filtering_blends_and_gear(): void
+    public function test_extracts_coffees_including_blends_filtering_only_non_coffee_items(): void
     {
+        // Single-origins AND blends are both in scope. Only non-coffee items
+        // (gear, gift cards, subscriptions) get dropped.
         $sample = [
             'products' => [
                 ['id' => 1, 'title' => 'Ethiopia Yirgacheffe', 'product_type' => 'Coffee',
@@ -73,12 +75,52 @@ class ShopifyScraperTest extends TestCase
 
         $result = ShopifyScraper::extractSingleOrigins($sample);
 
-        $this->assertCount(1, $result, 'should drop blends and equipment');
-        $this->assertSame('Ethiopia Yirgacheffe', $result[0]['name']);
-        $this->assertSame(2, count($result[0]['variants']));
-        $this->assertSame(250, $result[0]['variants'][0]['grams']);
-        $this->assertSame(24.00, $result[0]['variants'][0]['price']);
-        $this->assertSame(454, $result[0]['variants'][1]['grams']);
+        $this->assertCount(2, $result, 'should keep both single-origin and blend; drop equipment');
+        $names = array_column($result, 'name');
+        $this->assertContains('Ethiopia Yirgacheffe', $names);
+        $this->assertContains('House Blend', $names);
+    }
+
+    public function test_detects_blends_via_title_or_tags(): void
+    {
+        $this->assertTrue(ShopifyScraper::isBlend(['title' => 'House Blend', 'tags' => []]));
+        $this->assertTrue(ShopifyScraper::isBlend(['title' => 'Espresso', 'tags' => ['Blend']]));
+        $this->assertTrue(ShopifyScraper::isBlend(['title' => 'X', 'product_type' => 'Espresso Blend', 'tags' => []]));
+        $this->assertFalse(ShopifyScraper::isBlend(['title' => 'Ethiopia Yirgacheffe', 'tags' => ['Single Origin']]));
+        $this->assertFalse(ShopifyScraper::isBlend(['title' => 'Brazil Natural', 'tags' => []]));
+    }
+
+    public function test_extract_passes_is_blend_through(): void
+    {
+        $sample = [
+            'products' => [
+                ['id' => 1, 'title' => 'Yirgacheffe', 'product_type' => 'Coffee', 'tags' => [],
+                 'body_html' => '',
+                 'variants' => [['id' => 11, 'title' => '250g', 'price' => '20', 'available' => true]]],
+                ['id' => 2, 'title' => 'House Blend', 'product_type' => 'Coffee', 'tags' => [],
+                 'body_html' => '',
+                 'variants' => [['id' => 21, 'title' => '340g', 'price' => '20', 'available' => true]]],
+            ],
+        ];
+        $result = ShopifyScraper::extractSingleOrigins($sample);
+        $byName = array_column($result, null, 'name');
+        $this->assertFalse($byName['Yirgacheffe']['is_blend']);
+        $this->assertTrue($byName['House Blend']['is_blend']);
+    }
+
+    public function test_drops_gift_cards_and_subscriptions_even_with_coffee_type(): void
+    {
+        $sample = [
+            'products' => [
+                ['id' => 1, 'title' => 'Coffee Gift Card', 'product_type' => 'Coffee', 'tags' => [],
+                 'body_html' => '',
+                 'variants' => [['id' => 11, 'title' => '250g', 'price' => '50.00', 'available' => true]]],
+                ['id' => 2, 'title' => 'Monthly Subscription', 'product_type' => 'Coffee', 'tags' => [],
+                 'body_html' => '',
+                 'variants' => [['id' => 21, 'title' => '340g', 'price' => '25.00', 'available' => true]]],
+            ],
+        ];
+        $this->assertSame([], ShopifyScraper::extractSingleOrigins($sample));
     }
 
     public function test_drops_variants_with_unparseable_size(): void

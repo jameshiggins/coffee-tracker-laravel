@@ -39,6 +39,7 @@ class RoasterImporter
                 'name' => $c['name'],
                 'origin' => $this->inferOrigin($c['name']),
                 'tasting_notes' => Str::limit(trim($c['description']), 500, '') ?: null,
+                'is_blend' => $c['is_blend'] ?? false,
             ]);
             foreach ($c['variants'] as $v) {
                 $coffee->variants()->create([

@@ -44,11 +44,24 @@ class RoasterImportTest extends TestCase
 
         $this->assertInstanceOf(Roaster::class, $roaster);
         $this->assertSame('roaster-example', $roaster->slug);
-        $this->assertSame(1, $roaster->coffees()->count(), 'should import single-origin only');
+        $this->assertSame(2, $roaster->coffees()->count(), 'imports single-origin + blend');
 
-        $coffee = $roaster->coffees()->with('variants')->first();
-        $this->assertSame('Ethiopia Yirgacheffe', $coffee->name);
+        $coffee = $roaster->coffees()->where('name', 'Ethiopia Yirgacheffe')->with('variants')->first();
+        $this->assertNotNull($coffee);
         $this->assertSame(2, $coffee->variants()->count());
+    }
+
+    public function test_import_persists_is_blend_flag_per_coffee(): void
+    {
+        Http::fake(['*' => Http::response($this->fakeShopifyResponse(), 200)]);
+
+        $roaster = (new RoasterImporter())->import('https://roasterexample.com', name: 'X', city: 'Vancouver');
+
+        $yirg = $roaster->coffees()->where('name', 'Ethiopia Yirgacheffe')->first();
+        $blend = $roaster->coffees()->where('name', 'House Blend')->first();
+
+        $this->assertFalse($yirg->is_blend, 'single-origin coffee should not be marked as blend');
+        $this->assertTrue($blend->is_blend, 'blend coffee should be marked as such');
     }
 
     public function test_import_marks_a_default_variant_per_coffee(): void

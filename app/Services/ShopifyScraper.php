@@ -84,6 +84,7 @@ class ShopifyScraper
                 'tags' => $p['tags'] ?? [],
                 'product_type' => $p['product_type'] ?? null,
                 'handle' => $p['handle'] ?? null,
+                'is_blend' => self::isBlend($p),
                 'variants' => $variants,
             ];
         }
@@ -121,26 +122,44 @@ class ShopifyScraper
         return $opts;
     }
 
+    /**
+     * Best-effort detection of "is this a blend?" from a Shopify product.
+     * Looks for "blend" / "espresso blend" in tags, product_type, or title.
+     * False negatives are fine — admin can correct via the form.
+     */
+    public static function isBlend(array $product): bool
+    {
+        $tags = is_array($product['tags'] ?? null)
+            ? $product['tags']
+            : explode(',', (string) ($product['tags'] ?? ''));
+        $haystack = strtolower(implode(' | ', [
+            $product['title'] ?? '',
+            $product['product_type'] ?? '',
+            implode(' ', $tags),
+        ]));
+        return str_contains($haystack, 'blend');
+    }
+
+    /**
+     * Is this product a coffee bean we want in the directory?
+     * Includes single-origins, blends, decaf — anything that's a bag of beans.
+     * Excludes gear, gift cards, subscriptions, anything with no coffee signal.
+     */
     private static function looksLikeSingleOrigin(array $product): bool
     {
         $type = strtolower($product['product_type'] ?? '');
         $title = strtolower($product['title'] ?? '');
-        $tags = array_map('strtolower', is_array($product['tags'] ?? null)
-            ? $product['tags']
-            : explode(',', (string) ($product['tags'] ?? '')));
-        $tagStr = implode(' ', $tags);
 
-        // Hard exclusions: anything that's not coffee.
+        // Hard exclusions by product_type — anything that's clearly not coffee.
         $excludeTypes = ['equipment', 'gear', 'merch', 'merchandise', 'gift card', 'subscription', 'apparel'];
         foreach ($excludeTypes as $bad) {
             if (str_contains($type, $bad)) return false;
         }
+        // Hard exclusions by title for items often tagged as "Coffee" but not actually a bag of beans.
         if (str_contains($title, 'gift card') || str_contains($title, 'subscription')) return false;
-        if (str_contains($tagStr, 'blend')) return false;
-        if (str_contains($title, 'blend')) return false;
-        if (str_contains($title, 'decaf')) return false;
 
-        // Must look like coffee. If type isn't set we still allow it through if title hints at coffee.
+        // If product_type isn't set we let it through (some sites don't categorise);
+        // otherwise it must positively look like coffee/beans.
         if ($type === '') return true;
         return str_contains($type, 'coffee') || str_contains($type, 'bean');
     }

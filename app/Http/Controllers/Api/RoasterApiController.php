@@ -87,6 +87,7 @@ class RoasterApiController extends Controller
                     'roast_level' => $c->roast_level,
                     'varietal' => $c->varietal,
                     'tasting_notes' => $c->tasting_notes,
+                    'is_blend' => (bool) $c->is_blend,
                     'best_price_per_gram' => $c->best_price_per_gram,
                     'default_variant' => $default,
                     'variants' => $variants,
