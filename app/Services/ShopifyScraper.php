@@ -43,25 +43,34 @@ class ShopifyScraper
      * Filter Shopify products down to single-origin coffees and normalize variants.
      * Drops blends, gear, gift cards, subscriptions.
      */
-    public static function extractSingleOrigins(array $payload): array
+    public static function extractSingleOrigins(?array $payload): array
     {
         $out = [];
         foreach ($payload['products'] ?? [] as $p) {
             if (!self::looksLikeSingleOrigin($p)) continue;
 
-            $variants = [];
+            // Dedupe variants by parsed grams. Roasters often list the same bag
+            // size in two units ("12oz" and "340g"), which both resolve to 340g
+            // and would violate the (coffee_id, bag_weight_grams) unique index.
+            // Prefer an available variant over an unavailable one when colliding.
+            $byGrams = [];
             foreach ($p['variants'] ?? [] as $v) {
                 $grams = self::parseGrams($v['title'] ?? '');
                 if ($grams === null) continue;
-                $variants[] = [
+                $available = (bool) ($v['available'] ?? true);
+                $existing = $byGrams[$grams] ?? null;
+                if ($existing && $existing['available'] && !$available) continue;
+                $byGrams[$grams] = [
                     'id' => $v['id'] ?? null,
                     'title' => $v['title'] ?? null,
                     'grams' => $grams,
                     'price' => (float) ($v['price'] ?? 0),
-                    'available' => (bool) ($v['available'] ?? true),
+                    'available' => $available,
                     'is_default' => false,
                 ];
             }
+            ksort($byGrams);
+            $variants = array_values($byGrams);
             if (empty($variants)) continue;
 
             // First available variant is the default; if none available, first overall.
@@ -85,11 +94,31 @@ class ShopifyScraper
     public static function fetch(string $url): array
     {
         $endpoint = self::productsUrl($url);
-        $response = Http::timeout(15)->acceptJson()->get($endpoint);
+        $response = Http::timeout(15)
+            ->withOptions(self::clientOptions())
+            ->acceptJson()
+            ->get($endpoint);
         if (!$response->ok()) {
             throw new RuntimeException("Shopify fetch failed: {$response->status()} for {$endpoint}");
         }
         return self::extractSingleOrigins($response->json());
+    }
+
+    /**
+     * Guzzle options for outbound HTTPS — Windows PHP doesn't ship a CA bundle,
+     * so point at the Mozilla bundle we keep under storage/. Falls back to system
+     * defaults on environments where the file isn't present.
+     */
+    private static function clientOptions(): array
+    {
+        $opts = [];
+        $cacert = storage_path('cacert.pem');
+        if (is_readable($cacert)) {
+            $opts['verify'] = $cacert;
+        }
+        // A real-looking UA helps with the few storefronts that block obvious scripts.
+        $opts['headers']['User-Agent'] = 'SpecialtyCoffeeRoasters/1.0 (+contact: directory)';
+        return $opts;
     }
 
     private static function looksLikeSingleOrigin(array $product): bool

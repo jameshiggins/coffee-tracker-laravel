@@ -98,6 +98,51 @@ class ShopifyScraperTest extends TestCase
         $this->assertCount(1, $result[0]['variants']);
     }
 
+    public function test_dedupes_variants_that_resolve_to_the_same_grams(): void
+    {
+        // Some roasters list the same bag in two units. Both "12oz" and "340g"
+        // parse to 340g and would violate the (coffee_id, bag_weight_grams)
+        // unique index if we let both through.
+        $sample = [
+            'products' => [[
+                'id' => 1, 'title' => 'Test', 'product_type' => 'Coffee', 'tags' => [],
+                'body_html' => '',
+                'variants' => [
+                    ['id' => 11, 'title' => '12oz / Whole Bean', 'price' => '24.00', 'available' => true],
+                    ['id' => 12, 'title' => '340g / Ground', 'price' => '24.00', 'available' => true],
+                    ['id' => 13, 'title' => '5lb', 'price' => '99.00', 'available' => true],
+                ],
+            ]],
+        ];
+
+        $result = ShopifyScraper::extractSingleOrigins($sample);
+        $grams = array_column($result[0]['variants'], 'grams');
+        $this->assertSame([340, 2268], $grams, 'duplicate grams collapsed; sorted ascending');
+    }
+
+    public function test_dedupe_prefers_available_variant_over_unavailable(): void
+    {
+        $sample = [
+            'products' => [[
+                'id' => 1, 'title' => 'Test', 'product_type' => 'Coffee', 'tags' => [],
+                'body_html' => '',
+                'variants' => [
+                    ['id' => 11, 'title' => '12oz', 'price' => '24.00', 'available' => false],
+                    ['id' => 12, 'title' => '340g', 'price' => '24.00', 'available' => true],
+                ],
+            ]],
+        ];
+        $result = ShopifyScraper::extractSingleOrigins($sample);
+        $this->assertSame(12, $result[0]['variants'][0]['id']);
+        $this->assertTrue($result[0]['variants'][0]['available']);
+    }
+
+    public function test_handles_null_payload_gracefully(): void
+    {
+        $this->assertSame([], ShopifyScraper::extractSingleOrigins(null));
+        $this->assertSame([], ShopifyScraper::extractSingleOrigins([]));
+    }
+
     public function test_marks_first_available_variant_as_default(): void
     {
         $sample = [

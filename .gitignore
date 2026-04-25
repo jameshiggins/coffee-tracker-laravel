@@ -19,3 +19,6 @@ yarn-error.log
 /.vscode
 /.claude
 /database/database.sqlite
+
+# CA bundle for Windows PHP — refresh from https://curl.se/ca/cacert.pem
+/storage/cacert.pem
