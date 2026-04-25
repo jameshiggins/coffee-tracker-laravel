@@ -123,21 +123,32 @@ class ShopifyScraper
     }
 
     /**
-     * Best-effort detection of "is this a blend?" from a Shopify product.
-     * Looks for "blend" / "espresso blend" in tags, product_type, or title.
-     * False negatives are fine — admin can correct via the form.
+     * Best-effort blend detection from a Shopify product. Two signals:
+     * 1) Explicit: "blend" appears in title/tags/product_type → blend.
+     * 2) Probabilistic: "Espresso" tag without "Single Origin" tag → blend.
+     *    At specialty roasters, espresso products are blends 90%+ of the
+     *    time unless the listing is explicitly tagged Single Origin.
      */
     public static function isBlend(array $product): bool
     {
         $tags = is_array($product['tags'] ?? null)
             ? $product['tags']
             : explode(',', (string) ($product['tags'] ?? ''));
+        $tagsLower = array_map(fn ($t) => strtolower(trim($t)), $tags);
+        $tagStr = implode(' ', $tagsLower);
         $haystack = strtolower(implode(' | ', [
             $product['title'] ?? '',
             $product['product_type'] ?? '',
-            implode(' ', $tags),
+            $tagStr,
         ]));
-        return str_contains($haystack, 'blend');
+
+        if (str_contains($haystack, 'blend')) return true;
+
+        $isSingleOrigin = str_contains($tagStr, 'single origin') || str_contains($tagStr, 'single-origin');
+        $isEspresso = in_array('espresso', $tagsLower, true) || str_contains($product['title'] ?? '', 'Espresso');
+        if ($isEspresso && !$isSingleOrigin) return true;
+
+        return false;
     }
 
     /**
@@ -157,6 +168,11 @@ class ShopifyScraper
         }
         // Hard exclusions by title for items often tagged as "Coffee" but not actually a bag of beans.
         if (str_contains($title, 'gift card') || str_contains($title, 'subscription')) return false;
+        if (str_contains($title, 'sample set') || str_contains($title, 'sample pack')) return false;
+        // "Single Sample Bags || Add-On" or similar tasting add-ons.
+        if (str_contains($title, 'sample') && (str_contains($title, 'add-on') || str_contains($title, 'add on'))) return false;
+        // "Sample Sets", "Tasting Set" — collections, not a single bean.
+        if (preg_match('/\bsample sets?\b/', $title) || str_contains($title, 'tasting set')) return false;
 
         // If product_type isn't set we let it through (some sites don't categorise);
         // otherwise it must positively look like coffee/beans.

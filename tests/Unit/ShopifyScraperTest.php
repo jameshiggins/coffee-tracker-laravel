@@ -90,6 +90,45 @@ class ShopifyScraperTest extends TestCase
         $this->assertFalse(ShopifyScraper::isBlend(['title' => 'Brazil Natural', 'tags' => []]));
     }
 
+    public function test_detects_espresso_products_as_blends_unless_explicitly_single_origin(): void
+    {
+        // At small roasters, "Espresso" without a Single-Origin tag is overwhelmingly
+        // a blend. Audit of Agro Roasters: Nocturnal/Equilibrium/Equinox Espresso
+        // are all blends despite never using the word "blend" in title or tags.
+        $this->assertTrue(ShopifyScraper::isBlend([
+            'title' => 'Nocturnal Espresso', 'tags' => ['Dark', 'Espresso'],
+        ]));
+        $this->assertTrue(ShopifyScraper::isBlend([
+            'title' => 'Equilibrium Espresso', 'tags' => ['Espresso', 'Medium'],
+        ]));
+        // BUT: Single-origin espresso DOES exist and should not be misclassified.
+        $this->assertFalse(ShopifyScraper::isBlend([
+            'title' => 'Ethiopia Guji Daannisa Espresso',
+            'tags' => ['Espresso', 'Single Origin'],
+        ]));
+    }
+
+    public function test_filters_out_sample_packs_and_addons(): void
+    {
+        // Real Agro listings that are NOT actual single bag-of-beans products.
+        $sample = [
+            'products' => [
+                ['id' => 1, 'title' => 'Single Sample Bags (100g) || Add-On',
+                 'product_type' => 'Coffee', 'tags' => ['Sample', 'Single Origin'], 'body_html' => '',
+                 'variants' => [['id' => 11, 'title' => '100g', 'price' => '5.00', 'available' => true]]],
+                ['id' => 2, 'title' => 'Sample Sets', 'product_type' => 'Coffee',
+                 'tags' => ['Espresso', 'Gift', 'Sample', 'Single Origin'], 'body_html' => '',
+                 'variants' => [['id' => 21, 'title' => '300g', 'price' => '30.00', 'available' => true]]],
+                ['id' => 3, 'title' => 'Real Coffee', 'product_type' => 'Coffee', 'tags' => [],
+                 'body_html' => '',
+                 'variants' => [['id' => 31, 'title' => '340g', 'price' => '24.00', 'available' => true]]],
+            ],
+        ];
+        $result = ShopifyScraper::extractSingleOrigins($sample);
+        $names = array_column($result, 'name');
+        $this->assertSame(['Real Coffee'], $names);
+    }
+
     public function test_extract_passes_is_blend_through(): void
     {
         $sample = [
