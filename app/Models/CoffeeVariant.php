@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CoffeeVariant extends Model
 {
@@ -24,11 +23,6 @@ class CoffeeVariant extends Model
     public function coffee(): BelongsTo
     {
         return $this->belongsTo(Coffee::class);
-    }
-
-    public function priceHistory(): HasMany
-    {
-        return $this->hasMany(PriceHistory::class)->orderBy('recorded_at');
     }
 
     public function getPricePerGramAttribute(): float

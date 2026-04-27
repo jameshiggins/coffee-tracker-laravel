@@ -7,11 +7,6 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h2>Manage Roasters</h2>
         <div style="display:flex; gap:10px;">
-            <form method="POST" action="{{ route('admin.snapshot') }}"
-                  onsubmit="return confirm('Record a price snapshot for every variant right now?')">
-                @csrf
-                <button type="submit" class="btn btn-secondary">📸 Snapshot prices now</button>
-            </form>
             <a href="{{ route('admin.roasters.import.form') }}" class="btn btn-secondary">🌐 Import from URL</a>
             <a href="{{ route('admin.roasters.create') }}" class="btn btn-primary">+ Add Roaster</a>
         </div>

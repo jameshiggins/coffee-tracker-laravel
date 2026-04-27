@@ -13,7 +13,6 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 // Public
 Route::get('/roasters', [RoasterApiController::class, 'index']);
 Route::get('/roasters/{roaster}', [RoasterApiController::class, 'show']);
-Route::get('/variants/{variant}/history', [RoasterApiController::class, 'variantHistory']);
 Route::get('/coffees/{coffee}/tastings', [TastingController::class, 'publicForCoffee']);
 
 // Authenticated

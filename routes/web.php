@@ -5,7 +5,6 @@ use App\Http\Controllers\Admin\RoasterController as AdminRoasterController;
 use App\Http\Controllers\Admin\CoffeeController as AdminCoffeeController;
 use App\Http\Controllers\Admin\VariantController as AdminVariantController;
 use App\Http\Controllers\Auth\GoogleAuthController;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect'])->name('auth.google.redirect');
@@ -36,12 +35,6 @@ Route::prefix('admin')->name('admin.')->group(function () {
         ->name('variants.update');
     Route::delete('variants/{variant}', [AdminVariantController::class, 'destroy'])
         ->name('variants.destroy');
-
-    Route::post('snapshot-prices', function () {
-        Artisan::call('prices:snapshot');
-        return redirect()->route('admin.roasters.index')
-            ->with('success', 'Price snapshot recorded for all variants.');
-    })->name('snapshot');
 
     Route::get('import', function () {
         return view('admin.roasters.import');

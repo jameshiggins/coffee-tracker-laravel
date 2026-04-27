@@ -2,10 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\PriceHistory;
 use App\Models\Roaster;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class RoasterApiTest extends TestCase
@@ -109,31 +107,4 @@ class RoasterApiTest extends TestCase
         $this->getJson('/api/roasters/does-not-exist')->assertNotFound();
     }
 
-    public function test_variant_history_returns_chronological_price_points(): void
-    {
-        $roaster = $this->seedRoaster();
-        $variant = $roaster->coffees->first()->variants->first();
-
-        $now = Carbon::parse('2026-04-24 12:00:00');
-        PriceHistory::insert([
-            ['coffee_variant_id' => $variant->id, 'price' => 25.50, 'in_stock' => true,
-                'recorded_at' => $now->copy()->subDays(7), 'created_at' => $now, 'updated_at' => $now],
-            ['coffee_variant_id' => $variant->id, 'price' => 24.25, 'in_stock' => true,
-                'recorded_at' => $now, 'created_at' => $now, 'updated_at' => $now],
-        ]);
-
-        $response = $this->getJson("/api/variants/{$variant->id}/history");
-
-        $response->assertOk();
-        $history = $response->json('history');
-        $this->assertCount(2, $history);
-        $this->assertSame(25.50, $history[0]['price']);
-        $this->assertSame(24.25, $history[1]['price']);
-        $this->assertTrue($history[0]['recorded_at'] < $history[1]['recorded_at']);
-    }
-
-    public function test_variant_history_404_for_unknown_variant(): void
-    {
-        $this->getJson('/api/variants/9999/history')->assertNotFound();
-    }
 }
