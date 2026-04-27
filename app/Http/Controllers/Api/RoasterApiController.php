@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\CoffeeVariant;
 use App\Models\Roaster;
 use Illuminate\Http\JsonResponse;
 
@@ -25,23 +24,6 @@ class RoasterApiController extends Controller
     {
         $roaster->load(['coffees.variants']);
         return response()->json($this->transformRoaster($roaster, true));
-    }
-
-    public function variantHistory(CoffeeVariant $variant): JsonResponse
-    {
-        $points = $variant->priceHistory()
-            ->orderBy('recorded_at')
-            ->get(['recorded_at', 'price', 'in_stock']);
-
-        return response()->json([
-            'variant_id' => $variant->id,
-            'bag_weight_grams' => $variant->bag_weight_grams,
-            'history' => $points->map(fn ($p) => [
-                'recorded_at' => $p->recorded_at->toIso8601String(),
-                'price' => (float) $p->price,
-                'in_stock' => (bool) $p->in_stock,
-            ]),
-        ]);
     }
 
     private function transformRoaster(Roaster $roaster, bool $detail = false): array
@@ -87,6 +69,8 @@ class RoasterApiController extends Controller
                     'roast_level' => $c->roast_level,
                     'varietal' => $c->varietal,
                     'tasting_notes' => $c->tasting_notes,
+                    'description' => $c->description,
+                    'product_url' => $c->product_url,
                     'is_blend' => (bool) $c->is_blend,
                     'best_price_per_gram' => $c->best_price_per_gram,
                     'default_variant' => $default,
