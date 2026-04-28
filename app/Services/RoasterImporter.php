@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Roaster;
+use App\Services\Scraping\AboutPageScraper;
 use App\Services\Scraping\ScraperRegistry;
 use App\Services\Scraping\Shared;
 use Illuminate\Support\Carbon;
@@ -10,9 +11,13 @@ use Illuminate\Support\Str;
 
 class RoasterImporter
 {
-    public function __construct(private ?ScraperRegistry $registry = null)
+    private ScraperRegistry $registry;
+    private AboutPageScraper $about;
+
+    public function __construct(?ScraperRegistry $registry = null, ?AboutPageScraper $about = null)
     {
         $this->registry = $registry ?? new ScraperRegistry();
+        $this->about = $about ?? new AboutPageScraper();
     }
 
     /**
@@ -56,6 +61,19 @@ class RoasterImporter
         // Persist the detected platform on first successful fetch.
         if (!$roaster->platform) {
             $roaster->platform = $scraper->platformKey();
+        }
+
+        // Backfill description from the about/homepage og:description ONLY when
+        // there's no admin override. Best-effort; failure here doesn't block.
+        if (!$roaster->description) {
+            try {
+                $blurb = $this->about->fetch($website);
+                if ($blurb) {
+                    $roaster->description = $blurb;
+                }
+            } catch (\Throwable) {
+                // ignore — about-page scraping is best-effort
+            }
         }
 
         $this->syncCoffees($roaster, $coffees);

@@ -7,6 +7,7 @@ use App\Models\Roaster;
 use App\Models\Tasting;
 use App\Models\User;
 use App\Services\RoasterImporter;
+use App\Services\Scraping\AboutPageScraper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -20,6 +21,18 @@ use Tests\TestCase;
 class ImportSoftRemoveTest extends TestCase
 {
     use RefreshDatabase;
+
+    /**
+     * Importer wired with a no-op about-page scraper so the test fakes don't
+     * have to also stub /pages/about + homepage HTTP calls.
+     */
+    private function importer(): RoasterImporter
+    {
+        $about = new class extends AboutPageScraper {
+            public function fetch(string $url): ?string { return null; }
+        };
+        return new RoasterImporter(null, $about);
+    }
 
     private function shopifyResponse(array $products): array
     {
@@ -45,7 +58,7 @@ class ImportSoftRemoveTest extends TestCase
             $this->product(101, 'Ethiopia Yirg'),
         ]), 200)]);
 
-        $importer = new RoasterImporter();
+        $importer = $this->importer();
         $roaster = $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
         $firstCoffeeId = $roaster->coffees()->first()->id;
 
@@ -62,7 +75,7 @@ class ImportSoftRemoveTest extends TestCase
             $this->product(101, 'Ethiopia Yirg'),
         ]), 200)]);
 
-        $importer = new RoasterImporter();
+        $importer = $this->importer();
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
         $coffee = Coffee::first();
 
@@ -81,7 +94,7 @@ class ImportSoftRemoveTest extends TestCase
 
     public function test_coffee_missing_from_fresh_import_gets_soft_removed(): void
     {
-        $importer = new RoasterImporter();
+        $importer = $this->importer();
 
         // Use Http::fakeSequence so each call gets a fresh response.
         // The first import's products.json probe + fetch consume the same
@@ -105,7 +118,7 @@ class ImportSoftRemoveTest extends TestCase
 
     public function test_soft_removed_coffee_un_removes_when_it_reappears(): void
     {
-        $importer = new RoasterImporter();
+        $importer = $this->importer();
 
         Http::fakeSequence()
             ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // probe
