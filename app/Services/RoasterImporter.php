@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Roaster;
+use App\Services\OriginGazetteer;
 use App\Services\Scraping\AboutPageScraper;
 use App\Services\Scraping\ScraperRegistry;
 use App\Services\Scraping\Shared;
@@ -193,13 +194,6 @@ class RoasterImporter
 
     private function inferOrigin(string $title): string
     {
-        $countries = ['Ethiopia', 'Kenya', 'Colombia', 'Brazil', 'Guatemala', 'Costa Rica',
-            'Honduras', 'Mexico', 'Peru', 'Rwanda', 'Burundi', 'Indonesia', 'Sumatra',
-            'Yemen', 'Panama', 'El Salvador', 'Nicaragua', 'Tanzania', 'Uganda',
-            'Bolivia', 'Ecuador', 'Jamaica', 'India'];
-        foreach ($countries as $c) {
-            if (stripos($title, $c) !== false) return $c;
-        }
-        return '';
+        return OriginGazetteer::inferCountry($title);
     }
 }
