@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Roaster;
 use App\Services\RoasterImporter;
-use App\Services\ShopifyScraper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -20,6 +19,8 @@ class RoasterImportTest extends TestCase
                 [
                     'id' => 1, 'title' => 'Ethiopia Yirgacheffe', 'product_type' => 'Coffee',
                     'tags' => ['Single Origin', 'Ethiopia'], 'body_html' => '<p>Floral notes.</p>',
+                    'handle' => 'ethiopia-yirgacheffe',
+                    'images' => [['src' => 'https://cdn.example.com/yirg.jpg']],
                     'variants' => [
                         ['id' => 11, 'title' => '250g', 'price' => '24.00', 'available' => true],
                         ['id' => 12, 'title' => '1lb', 'price' => '38.00', 'available' => true],
@@ -28,13 +29,14 @@ class RoasterImportTest extends TestCase
                 [
                     'id' => 2, 'title' => 'House Blend', 'product_type' => 'Coffee',
                     'tags' => ['Blend'], 'body_html' => '',
+                    'handle' => 'house-blend',
                     'variants' => [['id' => 21, 'title' => '340g', 'price' => '20.00', 'available' => true]],
                 ],
             ],
         ];
     }
 
-    public function test_import_creates_roaster_from_url_with_scraped_coffees_and_variants(): void
+    public function test_import_creates_roaster_with_scraped_coffees_and_variants(): void
     {
         Http::fake([
             'roasterexample.com/products.json*' => Http::response($this->fakeShopifyResponse(), 200),
@@ -60,20 +62,17 @@ class RoasterImportTest extends TestCase
         $yirg = $roaster->coffees()->where('name', 'Ethiopia Yirgacheffe')->first();
         $blend = $roaster->coffees()->where('name', 'House Blend')->first();
 
-        $this->assertFalse($yirg->is_blend, 'single-origin coffee should not be marked as blend');
-        $this->assertTrue($blend->is_blend, 'blend coffee should be marked as such');
+        $this->assertFalse($yirg->is_blend);
+        $this->assertTrue($blend->is_blend);
     }
 
     public function test_import_marks_a_default_variant_per_coffee(): void
     {
-        Http::fake([
-            '*' => Http::response($this->fakeShopifyResponse(), 200),
-        ]);
+        Http::fake(['*' => Http::response($this->fakeShopifyResponse(), 200)]);
 
         $roaster = (new RoasterImporter())->import('https://roasterexample.com', name: 'X', city: 'Vancouver');
         $coffee = $roaster->coffees()->with('variants')->first();
-        $defaults = $coffee->variants()->where('is_default', true)->count();
-        $this->assertSame(1, $defaults);
+        $this->assertSame(1, $coffee->variants()->where('is_default', true)->count());
     }
 
     public function test_reimport_updates_existing_roaster_in_place(): void
@@ -84,15 +83,49 @@ class RoasterImportTest extends TestCase
         $first = $importer->import('https://roasterexample.com', name: 'X', city: 'Vancouver');
         $second = $importer->import('https://roasterexample.com', name: 'X', city: 'Vancouver');
 
-        $this->assertSame($first->id, $second->id, 'should update, not duplicate');
+        $this->assertSame($first->id, $second->id);
         $this->assertSame(1, Roaster::count());
     }
 
-    public function test_import_throws_when_shopify_endpoint_is_unreachable(): void
+    public function test_successful_import_caches_platform_on_roaster(): void
     {
-        Http::fake(['*' => Http::response('not found', 404)]);
+        Http::fake(['*' => Http::response($this->fakeShopifyResponse(), 200)]);
 
-        $this->expectException(\RuntimeException::class);
-        (new RoasterImporter())->import('https://roasterexample.com', name: 'X', city: 'Vancouver');
+        $roaster = (new RoasterImporter())->import('https://roasterexample.com', name: 'X', city: 'Vancouver');
+
+        $this->assertSame('shopify', $roaster->platform);
+        $this->assertSame('success', $roaster->last_import_status);
+        $this->assertNotNull($roaster->last_imported_at);
+        $this->assertNull($roaster->last_import_error);
+    }
+
+    public function test_empty_product_list_records_empty_status(): void
+    {
+        Http::fake(['*' => Http::response(['products' => []], 200)]);
+
+        $roaster = (new RoasterImporter())->import('https://example.com', name: 'X', city: 'Vancouver');
+
+        $this->assertSame('empty', $roaster->last_import_status);
+        $this->assertSame(0, $roaster->coffees()->count());
+    }
+
+    public function test_failed_import_records_error_status_and_rethrows(): void
+    {
+        // All scrapers fail to handle a network error — Generic-HTML's homepage
+        // fetch also gets the 500. Importer records the error and rethrows so
+        // the caller (artisan command) can log it.
+        Http::fake(['*' => Http::response('boom', 500)]);
+
+        try {
+            (new RoasterImporter())->import('https://example.com', name: 'X', city: 'Vancouver');
+            $this->fail('expected import to throw');
+        } catch (\RuntimeException) {
+            // expected
+        }
+
+        $roaster = Roaster::where('slug', 'x')->first();
+        $this->assertNotNull($roaster);
+        $this->assertSame('error', $roaster->last_import_status);
+        $this->assertNotEmpty($roaster->last_import_error);
     }
 }

@@ -2,10 +2,8 @@
 
 namespace Database\Seeders;
 
-use App\Models\PriceHistory;
 use App\Models\Roaster;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class RoasterSeeder extends Seeder
@@ -40,14 +38,13 @@ class RoasterSeeder extends Seeder
 
                 $defaultIdx = $this->pickDefaultVariantIndex($variants);
                 foreach ($variants as $idx => $v) {
-                    $variant = $coffee->variants()->create([
+                    $coffee->variants()->create([
                         'bag_weight_grams' => $v['grams'],
                         'price'            => $v['price'],
                         'in_stock'         => $v['in_stock'] ?? true,
                         'purchase_link'    => $v['purchase_link'] ?? $roaster->website ?? null,
                         'is_default'       => $idx === $defaultIdx,
                     ]);
-                    $this->seedHistory($variant->id, $v['price']);
                 }
             }
         }
@@ -80,25 +77,6 @@ class RoasterSeeder extends Seeder
             if ($v['grams'] < $variants[$smallest]['grams']) $smallest = $i;
         }
         return $smallest;
-    }
-
-    private function seedHistory(int $variantId, float $currentPrice): void
-    {
-        $rows = [];
-        $now = Carbon::now();
-        for ($i = 5; $i >= 0; $i--) {
-            $price = $currentPrice + ($i === 0 ? 0 : (($i % 2 === 0 ? -1 : 1) * mt_rand(25, 175) / 100));
-            $price = max(round($price, 2), 5.00);
-            $rows[] = [
-                'coffee_variant_id' => $variantId,
-                'price'             => $price,
-                'in_stock'          => true,
-                'recorded_at'       => $now->copy()->subDays($i * 7),
-                'created_at'        => $now,
-                'updated_at'        => $now,
-            ];
-        }
-        PriceHistory::insert($rows);
     }
 
     private function roasterData(): array

@@ -15,6 +15,7 @@ class Roaster extends Model
         'latitude', 'longitude', 'website', 'instagram', 'description',
         'has_shipping', 'ships_to', 'shipping_cost', 'free_shipping_over', 'shipping_notes',
         'has_subscription', 'subscription_notes', 'is_active',
+        'platform', 'last_imported_at', 'last_import_status', 'last_import_error',
     ];
 
     protected $casts = [
@@ -26,6 +27,7 @@ class Roaster extends Model
         'latitude' => 'float',
         'longitude' => 'float',
         'ships_to' => 'array',
+        'last_imported_at' => 'datetime',
     ];
 
     public function coffees(): HasMany

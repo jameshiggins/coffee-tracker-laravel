@@ -2,22 +2,32 @@
 
 namespace App\Services;
 
-use App\Models\Coffee;
 use App\Models\Roaster;
+use App\Services\Scraping\ScraperRegistry;
+use App\Services\Scraping\Shared;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class RoasterImporter
 {
+    public function __construct(private ?ScraperRegistry $registry = null)
+    {
+        $this->registry = $registry ?? new ScraperRegistry();
+    }
+
     /**
-     * Import (or refresh) a roaster from a Shopify storefront URL.
-     * Replaces existing coffees + variants for a clean snapshot of current inventory.
+     * Import (or refresh) a roaster from any supported platform URL.
+     * Detects platform on first run via ScraperRegistry, caches the result
+     * on roasters.platform, and dispatches directly on subsequent runs.
+     *
+     * Failures get recorded on roasters.last_import_status / last_import_error
+     * but don't throw — admin index surfaces them.
      */
     public function import(string $url, ?string $name = null, ?string $city = null, ?string $region = null): Roaster
     {
-        $coffees = ShopifyScraper::fetch($url);
-
         $name ??= $this->inferNameFromUrl($url);
         $slug = Str::slug($name);
+        $website = Shared::origin($url);
 
         $roaster = Roaster::updateOrCreate(
             ['slug' => $slug],
@@ -25,40 +35,81 @@ class RoasterImporter
                 'name' => $name,
                 'city' => $city ?? 'Unknown',
                 'region' => $region,
-                'website' => $this->normalizeWebsite($url),
-                'has_shipping' => true, // any roaster with a Shopify storefront sells online
+                'website' => $website,
+                'has_shipping' => true,
                 'is_active' => true,
             ]
         );
 
-        // Wipe existing coffee data so we have an authoritative snapshot.
+        try {
+            $scraper = $this->registry->detect($website, $roaster->platform);
+            $coffees = $scraper->fetch($website);
+        } catch (\Throwable $e) {
+            $roaster->forceFill([
+                'last_imported_at' => Carbon::now(),
+                'last_import_status' => 'error',
+                'last_import_error' => $e->getMessage(),
+            ])->save();
+            throw $e;
+        }
+
+        // Persist the detected platform on first successful fetch.
+        if (!$roaster->platform) {
+            $roaster->platform = $scraper->platformKey();
+        }
+
+        $this->syncCoffees($roaster, $coffees);
+
+        $roaster->forceFill([
+            'last_imported_at' => Carbon::now(),
+            'last_import_status' => empty($coffees) ? 'empty' : 'success',
+            'last_import_error' => null,
+        ])->save();
+
+        return $roaster->fresh('coffees.variants');
+    }
+
+    /**
+     * Replace this roaster's coffees with the freshly-scraped set.
+     *
+     * NOTE: this is the simple delete-and-recreate behaviour from before the
+     * grilling decisions. The next commit upgrades this to upsert-on-(platform,
+     * source_id) + soft-remove (Q1+Q2) so that user tasting links survive.
+     */
+    private function syncCoffees(Roaster $roaster, array $coffees): void
+    {
         $roaster->coffees()->delete();
 
         foreach ($coffees as $c) {
-            $description = $this->cleanDescription($c['description'] ?? '');
-            $productUrl = !empty($c['handle'])
-                ? rtrim($this->normalizeWebsite($url), '/') . '/products/' . $c['handle']
-                : null;
+            $description = $this->cleanDescription((string) ($c['description'] ?? ''));
             $coffee = $roaster->coffees()->create([
                 'name' => $c['name'],
                 'origin' => $this->inferOrigin($c['name']),
                 'description' => $description,
                 'tasting_notes' => $this->extractTastingNotes($description),
-                'product_url' => $productUrl,
+                'product_url' => $c['product_url'] ?? null,
                 'is_blend' => $c['is_blend'] ?? false,
             ]);
-            foreach ($c['variants'] as $v) {
+            $variants = $c['variants'] ?? [];
+            $defaultIndex = $this->pickDefaultVariantIndex($variants);
+            foreach ($variants as $i => $v) {
                 $coffee->variants()->create([
                     'bag_weight_grams' => $v['grams'],
                     'price' => $v['price'],
-                    'in_stock' => $v['available'],
-                    'is_default' => $v['is_default'],
-                    'purchase_link' => $productUrl ?? $this->normalizeWebsite($url),
+                    'in_stock' => $v['available'] ?? true,
+                    'is_default' => $i === $defaultIndex,
+                    'purchase_link' => $c['product_url'] ?? $roaster->website,
                 ]);
             }
         }
+    }
 
-        return $roaster->fresh('coffees.variants');
+    private function pickDefaultVariantIndex(array $variants): int
+    {
+        foreach ($variants as $i => $v) {
+            if (($v['available'] ?? true) === true) return $i;
+        }
+        return 0;
     }
 
     private function inferNameFromUrl(string $url): string
@@ -69,33 +120,15 @@ class RoasterImporter
         return ucwords(str_replace(['-', '_'], ' ', $base));
     }
 
-    private function normalizeWebsite(string $url): string
-    {
-        $parts = parse_url($url);
-        $scheme = $parts['scheme'] ?? 'https';
-        $host = $parts['host'] ?? '';
-        return "{$scheme}://{$host}";
-    }
-
-    /**
-     * Tidy a Shopify body_html'd-then-stripped description: collapse whitespace,
-     * normalise newlines, drop the noise that creeps in from rich-text editors.
-     */
     private function cleanDescription(string $raw): ?string
     {
         $s = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        // Collapse 3+ newlines to 2; collapse runs of horizontal whitespace.
         $s = preg_replace("/\n{3,}/", "\n\n", $s);
         $s = preg_replace('/[ \t]+/', ' ', $s);
         $s = trim($s);
         return $s !== '' ? $s : null;
     }
 
-    /**
-     * Heuristic: pull the first short comma-separated flavour list from the
-     * description (e.g. "Notes: blueberry, hibiscus, dark chocolate"). Returns
-     * null if nothing matches — better empty than wrong.
-     */
     private function extractTastingNotes(?string $description): ?string
     {
         if (!$description) return null;
@@ -105,7 +138,6 @@ class RoasterImporter
         return null;
     }
 
-    /** Best-effort country guess from product title — falls back to empty. */
     private function inferOrigin(string $title): string
     {
         $countries = ['Ethiopia', 'Kenya', 'Colombia', 'Brazil', 'Guatemala', 'Costa Rica',
