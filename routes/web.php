@@ -57,4 +57,19 @@ Route::prefix('admin')->name('admin.')->group(function () {
             return back()->withInput()->withErrors(['url' => 'Import failed: ' . $e->getMessage()]);
         }
     })->name('roasters.import');
+
+    Route::post('roasters/{roaster}/refresh', function (\App\Models\Roaster $roaster) {
+        if (!$roaster->website) {
+            return back()->withErrors(['url' => 'Roaster has no website to import from.']);
+        }
+        try {
+            (new \App\Services\RoasterImporter())->import(
+                $roaster->website, name: $roaster->name, city: $roaster->city, region: $roaster->region
+            );
+            return back()->with('success', "Refreshed {$roaster->name}.");
+        } catch (\Throwable $e) {
+            // Importer already persisted last_import_status='error'; flash for visibility.
+            return back()->with('success', "Tried to refresh {$roaster->name}: " . $e->getMessage());
+        }
+    })->name('roasters.refresh');
 });

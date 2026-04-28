@@ -11,7 +11,20 @@ class RoasterController extends Controller
 {
     public function index()
     {
-        $roasters = Roaster::with('coffees')->withCount('coffees')->orderBy('name')->paginate(50);
+        // Sort by status so problem roasters (errors / empty / never imported)
+        // bubble to the top of the admin index. Within each status bucket,
+        // keep alphabetical.
+        $statusOrder = "CASE last_import_status
+            WHEN 'error' THEN 0
+            WHEN 'unsupported' THEN 1
+            WHEN 'empty' THEN 2
+            WHEN 'success' THEN 4
+            ELSE 3 END"; // null = 3, never imported
+        $roasters = Roaster::with('coffees.variants')
+            ->withCount('coffees')
+            ->orderByRaw($statusOrder)
+            ->orderBy('name')
+            ->paginate(50);
         return view('admin.roasters.index', compact('roasters'));
     }
 

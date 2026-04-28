@@ -12,37 +12,77 @@
         </div>
     </div>
 
+    @php
+        // Per-status background tints so admin can see at a glance which
+        // roasters need attention.
+        $statusBg = [
+            'success'     => '#f1f9f1',
+            'empty'       => '#fdfbe7',
+            'error'       => '#fbe9e7',
+            'unsupported' => '#f0eef9',
+        ];
+        $statusLabel = [
+            'success'     => '✓ Imported',
+            'empty'       => '∅ Empty catalog',
+            'error'       => '✗ Error',
+            'unsupported' => '? Unsupported platform',
+        ];
+    @endphp
+
     <table class="admin-table">
         <thead>
             <tr>
                 <th>Roaster</th>
-                <th>Region</th>
                 <th>City</th>
-                <th style="text-align:center">Offerings</th>
-                <th style="text-align:center">Ships</th>
-                <th style="text-align:center">Sub</th>
-                <th style="text-align:center">Active</th>
+                <th>Platform</th>
+                <th style="text-align:center">Beans</th>
+                <th>Last import</th>
+                <th>Status</th>
                 <th style="text-align:right">Actions</th>
             </tr>
         </thead>
         <tbody>
             @forelse($roasters as $roaster)
-            <tr>
-                <td><strong>{{ $roaster->name }}</strong></td>
-                <td>{{ $roaster->region ?? '—' }}</td>
+            @php $bg = $statusBg[$roaster->last_import_status] ?? '#fff'; @endphp
+            <tr style="background: {{ $bg }}">
+                <td>
+                    <strong>{{ $roaster->name }}</strong>
+                    <div style="color:#999; font-size:11px">{{ $roaster->region ?? '' }}</div>
+                </td>
                 <td>{{ $roaster->city }}</td>
+                <td>{{ $roaster->platform ?? '—' }}</td>
                 <td style="text-align:center">{{ $roaster->coffees_count }}</td>
-                <td style="text-align:center">{{ $roaster->has_shipping ? '✓' : '–' }}</td>
-                <td style="text-align:center">{{ $roaster->has_subscription ? '✓' : '–' }}</td>
-                <td style="text-align:center">
-                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{{ $roaster->is_active ? '#28a745' : '#dc3545' }}"></span>
+                <td style="font-size:12px; color:#666">
+                    {{ $roaster->last_imported_at ? $roaster->last_imported_at->diffForHumans() : 'never' }}
+                </td>
+                <td style="font-size:12px">
+                    @if($roaster->last_import_status)
+                        {{ $statusLabel[$roaster->last_import_status] ?? $roaster->last_import_status }}
+                        @if($roaster->last_import_error)
+                            <div style="color:#c00; font-size:11px; margin-top:2px; max-width:300px;
+                                        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                                 title="{{ $roaster->last_import_error }}">
+                                {{ $roaster->last_import_error }}
+                            </div>
+                        @endif
+                    @else
+                        <span style="color:#999">never imported</span>
+                    @endif
                 </td>
                 <td>
                     <div class="action-btns">
+                        @if($roaster->website)
+                            <form method="POST" action="{{ route('admin.roasters.refresh', $roaster) }}" style="display:inline">
+                                @csrf
+                                <button type="submit" class="btn btn-small btn-secondary"
+                                        title="Re-fetch this roaster's products from {{ $roaster->website }}">↻ Refresh</button>
+                            </form>
+                        @endif
                         <a href="{{ route('admin.coffees.create', $roaster) }}" class="btn btn-small btn-primary">+ Coffee</a>
                         <a href="{{ route('admin.roasters.edit', $roaster) }}" class="btn btn-small btn-secondary">Edit</a>
                         <form method="POST" action="{{ route('admin.roasters.destroy', $roaster) }}"
-                              onsubmit="return confirm('Delete {{ addslashes($roaster->name) }} and all its offerings?')">
+                              onsubmit="return confirm('Delete {{ addslashes($roaster->name) }} and all its offerings?')"
+                              style="display:inline">
                             @csrf @method('DELETE')
                             <button type="submit" class="btn btn-small btn-danger">Delete</button>
                         </form>
@@ -51,8 +91,8 @@
             </tr>
 
             @if($roaster->coffees_count > 0)
-            <tr>
-                <td colspan="8" style="padding: 4px 15px 12px;">
+            <tr style="background: {{ $bg }}">
+                <td colspan="7" style="padding: 4px 15px 12px;">
                     <div class="inline-coffees">
                         @foreach($roaster->coffees as $coffee)
                         @php
@@ -60,8 +100,11 @@
                             $sizes = $variants->map(fn ($v) => $v->bag_weight_grams . 'g')->implode(' / ');
                             $best = $coffee->best_price_per_gram;
                         @endphp
-                        <div class="coffee-chip">
+                        <div class="coffee-chip" style="{{ $coffee->removed_at ? 'opacity:0.5' : '' }}">
                             <strong>{{ $coffee->name }}</strong>
+                            @if($coffee->removed_at)
+                                <span style="color:#c00; font-size:10px">SOLD OUT</span>
+                            @endif
                             <span style="color:#999">{{ $coffee->origin }}</span>
                             @if($variants->isNotEmpty())
                                 <span style="color:#666; font-size: 11px;">{{ $sizes }}</span>
@@ -83,7 +126,7 @@
             @endif
             @empty
             <tr>
-                <td colspan="8" class="empty-state">No roasters yet.</td>
+                <td colspan="7" class="empty-state">No roasters yet.</td>
             </tr>
             @endforelse
         </tbody>
