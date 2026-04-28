@@ -11,7 +11,7 @@ class CoffeeVariant extends Model
     use HasFactory;
 
     protected $fillable = [
-        'coffee_id', 'bag_weight_grams', 'price', 'in_stock', 'purchase_link',
+        'coffee_id', 'bag_weight_grams', 'price', 'currency_code', 'in_stock', 'purchase_link',
     ];
 
     protected $casts = [

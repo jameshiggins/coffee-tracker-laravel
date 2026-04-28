@@ -57,6 +57,7 @@ class RoasterApiController extends Controller
                     'id' => $v->id,
                     'bag_weight_grams' => $v->bag_weight_grams,
                     'price' => (float) $v->price,
+                    'currency_code' => $v->currency_code ?? 'CAD',
                     'in_stock' => (bool) $v->in_stock,
                     'purchase_link' => $v->purchase_link,
                     'price_per_gram' => $v->price_per_gram,
