@@ -12,13 +12,27 @@ class Coffee extends Model
     use HasFactory;
 
     protected $fillable = [
-        'roaster_id', 'name', 'origin', 'process', 'roast_level',
+        'roaster_id', 'source_id', 'name', 'origin', 'process', 'roast_level',
         'varietal', 'tasting_notes', 'description', 'product_url', 'is_blend',
+        'removed_at',
     ];
 
     protected $casts = [
         'is_blend' => 'boolean',
+        'removed_at' => 'datetime',
     ];
+
+    /** Scope: only currently-listed coffees (imported and not soft-removed). */
+    public function scopeAvailable($query)
+    {
+        return $query->whereNull('removed_at');
+    }
+
+    /** Convenience for views that need the boolean. */
+    public function isAvailable(): bool
+    {
+        return $this->removed_at === null;
+    }
 
     public function roaster(): BelongsTo
     {

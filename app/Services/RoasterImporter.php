@@ -70,38 +70,83 @@ class RoasterImporter
     }
 
     /**
-     * Replace this roaster's coffees with the freshly-scraped set.
+     * Reconcile this roaster's coffees with the freshly-scraped set.
      *
-     * NOTE: this is the simple delete-and-recreate behaviour from before the
-     * grilling decisions. The next commit upgrades this to upsert-on-(platform,
-     * source_id) + soft-remove (Q1+Q2) so that user tasting links survive.
+     * Q1+Q2 invariant: user tastings/wishlists (FK on coffee_id) must survive
+     * a re-import. So:
+     *  - Match each scraped coffee to an existing row by (roaster_id, source_id).
+     *  - If found: update it in place; clear removed_at if previously soft-removed.
+     *  - If not found: create a new row.
+     *  - Coffees that existed before this run but didn't appear in the fetch:
+     *    set removed_at to the current timestamp (soft-remove). The row stays;
+     *    foreign keys hold.
+     *
+     * Variants don't have user FKs (tastings link to the coffee, not the
+     * variant), so they keep the simpler delete-and-recreate per coffee.
      */
     private function syncCoffees(Roaster $roaster, array $coffees): void
     {
-        $roaster->coffees()->delete();
+        $now = Carbon::now();
+        $existingBySourceId = $roaster->coffees()->whereNotNull('source_id')->get()->keyBy('source_id');
+        $seenSourceIds = [];
 
         foreach ($coffees as $c) {
-            $description = $this->cleanDescription((string) ($c['description'] ?? ''));
-            $coffee = $roaster->coffees()->create([
-                'name' => $c['name'],
-                'origin' => $this->inferOrigin($c['name']),
-                'description' => $description,
-                'tasting_notes' => $this->extractTastingNotes($description),
-                'product_url' => $c['product_url'] ?? null,
-                'is_blend' => $c['is_blend'] ?? false,
-            ]);
-            $variants = $c['variants'] ?? [];
-            $defaultIndex = $this->pickDefaultVariantIndex($variants);
-            foreach ($variants as $i => $v) {
-                $coffee->variants()->create([
-                    'bag_weight_grams' => $v['grams'],
-                    'price' => $v['price'],
-                    'in_stock' => $v['available'] ?? true,
-                    'is_default' => $i === $defaultIndex,
-                    'purchase_link' => $c['product_url'] ?? $roaster->website,
-                ]);
+            $sourceId = (string) ($c['source_id'] ?? '');
+            if ($sourceId === '') {
+                // Scraper didn't expose a stable id (rare — generic-html with no
+                // schema URL). Fall back to creating a fresh row each time;
+                // matches old behaviour for that edge case.
+                $this->upsertCoffee($roaster, $c, null);
+                continue;
+            }
+            $seenSourceIds[$sourceId] = true;
+            $existing = $existingBySourceId->get($sourceId);
+            $this->upsertCoffee($roaster, $c, $existing);
+        }
+
+        // Soft-remove any previously-imported coffee not seen in this run.
+        $missing = $existingBySourceId->reject(fn ($coffee, $sid) => isset($seenSourceIds[$sid]));
+        foreach ($missing as $coffee) {
+            if ($coffee->removed_at === null) {
+                $coffee->forceFill(['removed_at' => $now])->save();
             }
         }
+    }
+
+    private function upsertCoffee(Roaster $roaster, array $c, ?\App\Models\Coffee $existing): \App\Models\Coffee
+    {
+        $description = $this->cleanDescription((string) ($c['description'] ?? ''));
+        $payload = [
+            'source_id' => $c['source_id'] ?? null,
+            'name' => $c['name'],
+            'origin' => $this->inferOrigin($c['name']),
+            'description' => $description,
+            'tasting_notes' => $this->extractTastingNotes($description),
+            'product_url' => $c['product_url'] ?? null,
+            'is_blend' => $c['is_blend'] ?? false,
+            'removed_at' => null, // un-remove if it had been soft-removed
+        ];
+
+        if ($existing) {
+            $existing->fill($payload)->save();
+            $coffee = $existing;
+            $coffee->variants()->delete();
+        } else {
+            $coffee = $roaster->coffees()->create($payload);
+        }
+
+        $variants = $c['variants'] ?? [];
+        $defaultIndex = $this->pickDefaultVariantIndex($variants);
+        foreach ($variants as $i => $v) {
+            $coffee->variants()->create([
+                'bag_weight_grams' => $v['grams'],
+                'price' => $v['price'],
+                'in_stock' => $v['available'] ?? true,
+                'is_default' => $i === $defaultIndex,
+                'purchase_link' => $c['product_url'] ?? $roaster->website,
+            ]);
+        }
+        return $coffee;
     }
 
     private function pickDefaultVariantIndex(array $variants): int

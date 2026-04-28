@@ -10,7 +10,7 @@ class RoasterApiController extends Controller
 {
     public function index(): JsonResponse
     {
-        $roasters = Roaster::with(['coffees.variants'])
+        $roasters = Roaster::with(['coffees' => fn ($q) => $q->whereNull('removed_at'), 'coffees.variants'])
             ->where('is_active', true)
             ->orderBy('name')
             ->get();
@@ -22,7 +22,10 @@ class RoasterApiController extends Controller
 
     public function show(Roaster $roaster): JsonResponse
     {
-        $roaster->load(['coffees.variants']);
+        $roaster->load([
+            'coffees' => fn ($q) => $q->whereNull('removed_at'),
+            'coffees.variants',
+        ]);
         return response()->json($this->transformRoaster($roaster, true));
     }
 
