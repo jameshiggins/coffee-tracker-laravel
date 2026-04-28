@@ -36,13 +36,11 @@ class RoasterApiTest extends TestCase
             'bag_weight_grams' => 250,
             'price' => 24.00,
             'in_stock' => true,
-            'is_default' => false,
         ]);
         $coffee->variants()->create([
             'bag_weight_grams' => 340,
             'price' => 30.00,
             'in_stock' => true,
-            'is_default' => true,
         ]);
 
         return $roaster;
@@ -73,14 +71,16 @@ class RoasterApiTest extends TestCase
         $this->assertSame(9.6, $variants[0]['cents_per_gram']);
     }
 
-    public function test_index_marks_default_variant_and_exposes_it_at_coffee_level(): void
+    public function test_index_exposes_default_variant_as_smallest_in_stock(): void
     {
         $this->seedRoaster();
 
         $coffee = $this->getJson('/api/roasters')->json('roasters.0.coffees.0');
 
-        $this->assertSame(340, $coffee['default_variant']['bag_weight_grams']);
-        $this->assertTrue($coffee['default_variant']['is_default']);
+        // First variant in stock — variants are ordered by grams ascending,
+        // so this is the 250g.
+        $this->assertSame(250, $coffee['default_variant']['bag_weight_grams']);
+        $this->assertTrue($coffee['default_variant']['in_stock']);
     }
 
     public function test_show_returns_full_roaster_with_address_fields(): void

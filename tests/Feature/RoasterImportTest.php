@@ -66,15 +66,6 @@ class RoasterImportTest extends TestCase
         $this->assertTrue($blend->is_blend);
     }
 
-    public function test_import_marks_a_default_variant_per_coffee(): void
-    {
-        Http::fake(['*' => Http::response($this->fakeShopifyResponse(), 200)]);
-
-        $roaster = (new RoasterImporter())->import('https://roasterexample.com', name: 'X', city: 'Vancouver');
-        $coffee = $roaster->coffees()->with('variants')->first();
-        $this->assertSame(1, $coffee->variants()->where('is_default', true)->count());
-    }
-
     public function test_reimport_updates_existing_roaster_in_place(): void
     {
         Http::fake(['*' => Http::response($this->fakeShopifyResponse(), 200)]);

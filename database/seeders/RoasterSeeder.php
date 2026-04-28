@@ -36,14 +36,12 @@ class RoasterSeeder extends Seeder
 
                 $coffee = $roaster->coffees()->create($coffeeRow);
 
-                $defaultIdx = $this->pickDefaultVariantIndex($variants);
-                foreach ($variants as $idx => $v) {
+                foreach ($variants as $v) {
                     $coffee->variants()->create([
                         'bag_weight_grams' => $v['grams'],
                         'price'            => $v['price'],
                         'in_stock'         => $v['in_stock'] ?? true,
                         'purchase_link'    => $v['purchase_link'] ?? $roaster->website ?? null,
-                        'is_default'       => $idx === $defaultIdx,
                     ]);
                 }
             }
@@ -62,21 +60,6 @@ class RoasterSeeder extends Seeder
             'Rossland' => [49.0792, -117.7990],
             'Salt Spring Island' => [48.8000, -123.5000],
         ];
-    }
-
-    private function pickDefaultVariantIndex(array $variants): int
-    {
-        // Most BC roasters default to 12oz (340g) on their product page; fall back to 250g, then smallest.
-        foreach ([340, 250] as $preferred) {
-            foreach ($variants as $i => $v) {
-                if ((int) $v['grams'] === $preferred) return $i;
-            }
-        }
-        $smallest = 0;
-        foreach ($variants as $i => $v) {
-            if ($v['grams'] < $variants[$smallest]['grams']) $smallest = $i;
-        }
-        return $smallest;
     }
 
     private function roasterData(): array

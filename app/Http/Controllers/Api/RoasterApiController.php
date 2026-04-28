@@ -61,9 +61,10 @@ class RoasterApiController extends Controller
                     'purchase_link' => $v->purchase_link,
                     'price_per_gram' => $v->price_per_gram,
                     'cents_per_gram' => $v->cents_per_gram,
-                    'is_default' => (bool) $v->is_default,
                 ])->values();
-                $default = $variants->firstWhere('is_default', true) ?? $variants->first();
+                // "Default" variant is just the smallest in-stock one — variants are
+                // already ordered ascending by bag_weight_grams in the relation.
+                $default = $variants->firstWhere('in_stock', true) ?? $variants->first();
                 return [
                     'id' => $c->id,
                     'name' => $c->name,
@@ -74,6 +75,7 @@ class RoasterApiController extends Controller
                     'tasting_notes' => $c->tasting_notes,
                     'description' => $c->description,
                     'product_url' => $c->product_url,
+                    'image_url' => $c->image_url,
                     'is_blend' => (bool) $c->is_blend,
                     'best_price_per_gram' => $c->best_price_per_gram,
                     'default_variant' => $default,

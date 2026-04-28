@@ -123,6 +123,7 @@ class RoasterImporter
             'description' => $description,
             'tasting_notes' => $this->extractTastingNotes($description),
             'product_url' => $c['product_url'] ?? null,
+            'image_url' => $c['image_url'] ?? null,
             'is_blend' => $c['is_blend'] ?? false,
             'removed_at' => null, // un-remove if it had been soft-removed
         ];
@@ -135,26 +136,15 @@ class RoasterImporter
             $coffee = $roaster->coffees()->create($payload);
         }
 
-        $variants = $c['variants'] ?? [];
-        $defaultIndex = $this->pickDefaultVariantIndex($variants);
-        foreach ($variants as $i => $v) {
+        foreach ($c['variants'] ?? [] as $v) {
             $coffee->variants()->create([
                 'bag_weight_grams' => $v['grams'],
                 'price' => $v['price'],
                 'in_stock' => $v['available'] ?? true,
-                'is_default' => $i === $defaultIndex,
                 'purchase_link' => $c['product_url'] ?? $roaster->website,
             ]);
         }
         return $coffee;
-    }
-
-    private function pickDefaultVariantIndex(array $variants): int
-    {
-        foreach ($variants as $i => $v) {
-            if (($v['available'] ?? true) === true) return $i;
-        }
-        return 0;
     }
 
     private function inferNameFromUrl(string $url): string
