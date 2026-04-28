@@ -87,9 +87,24 @@ class TastingController extends Controller
 
     private function transform(Tasting $t): array
     {
+        // Re-load relationships if not already eager-loaded — covers the
+        // store() / update() paths where the controller called transform()
+        // on a freshly-constructed model.
+        $t->loadMissing('coffee.roaster');
+
         return [
             'id' => $t->id,
             'coffee_id' => $t->coffee_id,
+            'coffee' => $t->coffee ? [
+                'id' => $t->coffee->id,
+                'name' => $t->coffee->name,
+                'image_url' => $t->coffee->image_url,
+                'is_removed' => $t->coffee->removed_at !== null,
+                'roaster' => [
+                    'name' => $t->coffee->roaster->name,
+                    'slug' => $t->coffee->roaster->slug,
+                ],
+            ] : null,
             'rating' => $t->rating,
             'notes' => $t->notes,
             'brew_method' => $t->brew_method,
