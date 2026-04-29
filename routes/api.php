@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CoffeeApiController;
 use App\Http\Controllers\Api\RoasterApiController;
 use App\Http\Controllers\Api\TastingController;
 use Illuminate\Http\Request;
@@ -13,6 +14,7 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 // Public
 Route::get('/roasters', [RoasterApiController::class, 'index']);
 Route::get('/roasters/{roaster}', [RoasterApiController::class, 'show']);
+Route::get('/coffees/{coffee}', [CoffeeApiController::class, 'show']);
 Route::get('/coffees/{coffee}/tastings', [TastingController::class, 'publicForCoffee']);
 
 // Authenticated
