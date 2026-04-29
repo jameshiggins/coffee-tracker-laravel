@@ -72,4 +72,18 @@ Route::prefix('admin')->name('admin.')->group(function () {
             return back()->with('success', "Tried to refresh {$roaster->name}: " . $e->getMessage());
         }
     })->name('roasters.refresh');
+
+    Route::post('roasters/{roaster}/geocode', function (\App\Models\Roaster $roaster) {
+        if (!$roaster->street_address) {
+            return back()->withErrors(['street_address' => 'No street address to geocode. Edit the roaster first.']);
+        }
+        $hit = (new \App\Services\NominatimGeocoder())->geocode(
+            $roaster->street_address, $roaster->city, $roaster->region, 'Canada'
+        );
+        if (!$hit) {
+            return back()->with('success', "Geocode failed for {$roaster->name}: no match.");
+        }
+        $roaster->update(['latitude' => $hit['lat'], 'longitude' => $hit['lng']]);
+        return back()->with('success', "Geocoded {$roaster->name} → {$hit['display_name']}");
+    })->name('roasters.geocode');
 });

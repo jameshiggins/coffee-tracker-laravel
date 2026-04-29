@@ -58,6 +58,40 @@
             </div>
         </div>
 
+        <div class="form-section">
+            <h3>Address & location</h3>
+            <p style="color:#666; font-size:12px; margin-bottom:8px;">
+                Used for nearest-to-me sort. Click <strong>Geocode</strong> after saving to fill latitude/longitude
+                from the street address via OpenStreetMap.
+            </p>
+            <div class="form-group">
+                <label>Street address</label>
+                <input type="text" name="street_address" value="{{ old('street_address', $roaster->street_address) }}" placeholder="111 Main St">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Postal code</label>
+                    <input type="text" name="postal_code" value="{{ old('postal_code', $roaster->postal_code) }}" placeholder="V6B 1A1">
+                </div>
+                <div class="form-group">
+                    <label style="font-size:12px; color:#666">Coordinates (auto-filled by Geocode)</label>
+                    <div style="font-size:12px; color:#666; padding:10px 0;">
+                        @if($roaster->latitude && $roaster->longitude)
+                            {{ number_format($roaster->latitude, 4) }}, {{ number_format($roaster->longitude, 4) }}
+                        @else
+                            <em>not set</em>
+                        @endif
+                    </div>
+                </div>
+            </div>
+            @if($roaster->exists && $roaster->street_address)
+                <form method="POST" action="{{ route('admin.roasters.geocode', $roaster) }}" style="display:inline">
+                    @csrf
+                    <button type="submit" class="btn btn-small btn-secondary">📍 Geocode address</button>
+                </form>
+            @endif
+        </div>
+
         <div class="form-group">
             <label>Description</label>
             <textarea name="description" rows="3">{{ old('description', $roaster->description) }}</textarea>
