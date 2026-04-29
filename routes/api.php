@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\CoffeeApiController;
 use App\Http\Controllers\Api\PublicProfileController;
 use App\Http\Controllers\Api\RoasterApiController;
 use App\Http\Controllers\Api\TastingController;
+use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -38,4 +39,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tastings', [TastingController::class, 'store']);
     Route::put('/tastings/{tasting}', [TastingController::class, 'update']);
     Route::delete('/tastings/{tasting}', [TastingController::class, 'destroy']);
+
+    Route::get('/wishlist', [WishlistController::class, 'index']);
+    Route::post('/wishlist', [WishlistController::class, 'store']);
+    Route::delete('/wishlist/{coffee}', [WishlistController::class, 'destroy']);
 });
