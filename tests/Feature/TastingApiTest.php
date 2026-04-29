@@ -22,10 +22,13 @@ class TastingApiTest extends TestCase
 
     private function makeUser(array $overrides = []): User
     {
+        // Random suffix on display_name so the second-user test cases don't
+        // collide on the now-unique display_name column.
+        $suffix = substr(bin2hex(random_bytes(3)), 0, 6);
         return User::create(array_merge([
             'name' => 'Alice',
             'email' => 'alice@example.com',
-            'display_name' => 'alice_taster',
+            'display_name' => 'alice_taster_' . $suffix,
             'password' => bcrypt(\Illuminate\Support\Str::random(32)),
         ], $overrides));
     }

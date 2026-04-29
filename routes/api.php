@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CoffeeApiController;
+use App\Http\Controllers\Api\PublicProfileController;
 use App\Http\Controllers\Api\RoasterApiController;
 use App\Http\Controllers\Api\TastingController;
 use Illuminate\Http\Request;
@@ -16,6 +17,10 @@ Route::get('/roasters', [RoasterApiController::class, 'index']);
 Route::get('/roasters/{roaster}', [RoasterApiController::class, 'show']);
 Route::get('/coffees/{coffee}', [CoffeeApiController::class, 'show']);
 Route::get('/coffees/{coffee}/tastings', [TastingController::class, 'publicForCoffee']);
+
+// Q9: per-tasting permalinks + public profiles
+Route::get('/tastings/{tasting}/public', [PublicProfileController::class, 'showTasting']);
+Route::get('/users/{displayName}', [PublicProfileController::class, 'showByDisplayName']);
 
 // Authenticated
 Route::middleware('auth:sanctum')->group(function () {
