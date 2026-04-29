@@ -65,6 +65,13 @@ return [
             // ],
         ],
 
+        // Q18: Resend transactional email driver. Used for verify-email,
+        // password reset, email change, and restock alerts. Free tier
+        // covers v1 traffic (3000 emails/month). API key in RESEND_KEY.
+        'resend' => [
+            'transport' => 'resend',
+        ],
+
         'sendmail' => [
             'transport' => 'sendmail',
             'path' => env('MAIL_SENDMAIL_PATH', '/usr/sbin/sendmail -bs -i'),

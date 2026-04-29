@@ -20,7 +20,16 @@ class Kernel extends ConsoleKernel
             ->dailyAt('11:00')
             ->withoutOverlapping()
             ->onOneServer()
-            ->runInBackground();
+            ->runInBackground()
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+
+        // Q14: email users about wishlisted beans that came back in stock,
+        // ~3 hours after the import finishes so the deltas are settled.
+        $schedule->command('alerts:restock')
+            ->dailyAt('14:00')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
     }
 
     /**

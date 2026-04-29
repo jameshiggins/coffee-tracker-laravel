@@ -31,6 +31,11 @@ class AuthController extends Controller
             'password'     => Hash::make($data['password']),
         ]);
 
+        // Q15: ship a verification email immediately. The user gets a token
+        // and can browse most of the app, but email-bound features (restock
+        // alerts) skip them until they click the link.
+        $user->sendEmailVerificationNotification();
+
         $token = $user->createToken('web')->plainTextToken;
 
         return response()->json([
@@ -93,6 +98,7 @@ class AuthController extends Controller
             'email' => $user->email,
             'display_name' => $user->display_name,
             'avatar_url' => $user->avatar_url,
+            'email_verified' => $user->hasVerifiedEmail(),
         ];
     }
 }

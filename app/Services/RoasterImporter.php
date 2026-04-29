@@ -150,20 +150,59 @@ class RoasterImporter
         if ($existing) {
             $existing->fill($payload)->save();
             $coffee = $existing;
-            $coffee->variants()->delete();
         } else {
             $coffee = $roaster->coffees()->create($payload);
         }
 
-        foreach ($c['variants'] ?? [] as $v) {
-            $coffee->variants()->create([
-                'bag_weight_grams' => $v['grams'],
-                'price' => $v['price'],
-                'in_stock' => $v['available'] ?? true,
-                'purchase_link' => $c['product_url'] ?? $roaster->website,
-            ]);
-        }
+        $this->syncVariants($coffee, $c['variants'] ?? [], $c['product_url'] ?? $roaster->website);
         return $coffee;
+    }
+
+    /**
+     * Upsert variants by (coffee_id, bag_weight_grams). Tracks in_stock
+     * transitions on in_stock_changed_at so Q14's restock-alerts cron
+     * can find OOS→in-stock deltas.
+     *
+     * Variants that no longer appear in the import are deleted (no FK
+     * from anywhere else points at variants — tastings link to coffees).
+     */
+    private function syncVariants(\App\Models\Coffee $coffee, array $scrapedVariants, ?string $purchaseLink): void
+    {
+        $existing = $coffee->variants()->get()->keyBy('bag_weight_grams');
+        $now = Carbon::now();
+        $seen = [];
+
+        foreach ($scrapedVariants as $v) {
+            $grams = $v['grams'];
+            $newInStock = (bool) ($v['available'] ?? true);
+            $seen[$grams] = true;
+
+            $row = $existing->get($grams);
+            if ($row) {
+                $stockTransitioned = $row->in_stock !== $newInStock;
+                $row->fill([
+                    'price' => $v['price'],
+                    'in_stock' => $newInStock,
+                    'purchase_link' => $purchaseLink,
+                ]);
+                if ($stockTransitioned) {
+                    $row->in_stock_changed_at = $now;
+                }
+                $row->save();
+            } else {
+                $coffee->variants()->create([
+                    'bag_weight_grams' => $grams,
+                    'price' => $v['price'],
+                    'in_stock' => $newInStock,
+                    'in_stock_changed_at' => $now,  // first-seen counts as a transition
+                    'purchase_link' => $purchaseLink,
+                ]);
+            }
+        }
+
+        // Variants that vanished from the import — drop them.
+        $existing->reject(fn ($v) => isset($seen[$v->bag_weight_grams]))
+            ->each(fn ($v) => $v->delete());
     }
 
     private function inferNameFromUrl(string $url): string

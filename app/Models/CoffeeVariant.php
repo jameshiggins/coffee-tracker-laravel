@@ -11,12 +11,14 @@ class CoffeeVariant extends Model
     use HasFactory;
 
     protected $fillable = [
-        'coffee_id', 'bag_weight_grams', 'price', 'currency_code', 'in_stock', 'purchase_link',
+        'coffee_id', 'bag_weight_grams', 'price', 'currency_code',
+        'in_stock', 'in_stock_changed_at', 'purchase_link',
     ];
 
     protected $casts = [
         'in_stock' => 'boolean',
         'price' => 'decimal:2',
+        'in_stock_changed_at' => 'datetime',
     ];
 
     public function coffee(): BelongsTo
