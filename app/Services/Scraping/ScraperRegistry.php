@@ -18,9 +18,14 @@ class ScraperRegistry
 
     public function __construct(?array $scrapers = null)
     {
+        // Order: cheapest probe first, generic catch-all last. Squarespace
+        // sits between Woo and Generic because its `?format=json-pretty`
+        // detection is lightweight but lower-priority than the platforms
+        // with dedicated catalog APIs.
         $this->scrapers = $scrapers ?? [
             new ShopifyScraper(),
             new WooCommerceScraper(),
+            new SquarespaceScraper(),
             new GenericHtmlScraper(),
         ];
     }

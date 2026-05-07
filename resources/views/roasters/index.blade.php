@@ -109,25 +109,28 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach($coffees as $coffee)
+                @foreach($coffees as $variant)
                 @php
-                    $cpg = $coffee->cents_per_gram;
+                    $coffee = $variant->coffee;
+                    $roaster = $coffee?->roaster;
+                    if (!$coffee || !$roaster) continue;
+                    $cpg = $variant->cents_per_gram;
                     $priceClass = $cpg < 6.5 ? 'price-good' : ($cpg < 7.5 ? 'price-average' : 'price-expensive');
-                    $regionKey = $coffee->roaster->region ?? 'Vancouver';
+                    $regionKey = $roaster->region ?? 'Vancouver';
                     $badgeClass = $regionClasses[$regionKey] ?? 'region-vancouver';
                 @endphp
                 <tr>
-                    <td><strong>{{ $coffee->roaster->name }}</strong></td>
-                    <td><span class="region-badge {{ $badgeClass }}">{{ $coffee->roaster->region ?? '—' }}</span></td>
+                    <td><strong>{{ $roaster->name }}</strong></td>
+                    <td><span class="region-badge {{ $badgeClass }}">{{ $roaster->region ?? '—' }}</span></td>
                     <td>{{ $coffee->name }}</td>
-                    <td>{{ $coffee->bag_weight_grams }}g</td>
-                    <td class="price-cell">${{ number_format($coffee->price, 2) }}</td>
+                    <td>{{ $variant->bag_weight_grams }}g</td>
+                    <td class="price-cell">${{ number_format($variant->price, 2) }}</td>
                     <td class="price-cell {{ $priceClass }}">{{ number_format($cpg, 1) }}¢</td>
                     <td>
-                        @if($coffee->purchase_link)
-                            <a href="{{ $coffee->purchase_link }}" target="_blank" rel="noopener" class="btn btn-small btn-primary">Buy Now</a>
-                        @elseif($coffee->roaster->website)
-                            <a href="{{ $coffee->roaster->website }}" target="_blank" rel="noopener" class="btn btn-small btn-secondary">Visit Site</a>
+                        @if($variant->purchase_link)
+                            <a href="{{ $variant->purchase_link }}" target="_blank" rel="noopener" class="btn btn-small btn-primary">Buy Now</a>
+                        @elseif($roaster->website)
+                            <a href="{{ $roaster->website }}" target="_blank" rel="noopener" class="btn btn-small btn-secondary">Visit Site</a>
                         @else
                             <span style="color: #999;">No link</span>
                         @endif

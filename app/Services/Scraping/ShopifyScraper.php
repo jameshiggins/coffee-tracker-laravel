@@ -47,17 +47,39 @@ class ShopifyScraper implements RoasterScraper
             $productType = (string) ($p['product_type'] ?? '');
             $tags = is_array($p['tags'] ?? null) ? $p['tags'] : explode(',', (string) ($p['tags'] ?? ''));
 
-            if (!Shared::looksLikeCoffee($title, $productType)) continue;
+            if (!Shared::looksLikeCoffee($title, $productType, $tags)) continue;
+
+            $productUrl = !empty($p['handle'])
+                ? $origin . '/products/' . $p['handle']
+                : null;
 
             $rawVariants = [];
             foreach ($p['variants'] ?? [] as $v) {
-                $grams = Shared::parseGrams((string) ($v['title'] ?? ''));
+                $varTitle = (string) ($v['title'] ?? '');
+                // Skip multipack / portion-pack / pod / sample-flight variants —
+                // they corrupt per-gram pricing because the size we'd record
+                // is for one packet, not the bundle's total weight.
+                if (Shared::isBadVariantTitle($varTitle)) continue;
+                // Try the variant title first; fall back to the product title
+                // for shops that put the bag size in the product name and use
+                // "Default Title" as the variant (Thom Bargen, Sam James pattern).
+                $grams = Shared::parseGrams($varTitle) ?? Shared::parseGrams($title);
                 if ($grams === null) continue;
+                $variantId = isset($v['id']) ? (string) $v['id'] : null;
+                $price = (float) ($v['price'] ?? 0);
+                if ($price <= 0) continue;  // free/missing price = bad data
+                // Per-variant deep link: Shopify product pages preselect the
+                // size dropdown when ?variant=<id> is in the URL.
+                $variantPurchaseLink = ($productUrl && $variantId)
+                    ? $productUrl . '?variant=' . $variantId
+                    : $productUrl;
                 $rawVariants[] = [
                     'grams' => $grams,
-                    'price' => (float) ($v['price'] ?? 0),
+                    'price' => $price,
                     'available' => (bool) ($v['available'] ?? true),
-                    'source_id' => isset($v['id']) ? (string) $v['id'] : null,
+                    'source_id' => $variantId,
+                    'purchase_link' => $variantPurchaseLink,
+                    'source_size_label' => Shared::extractSourceSizeLabel($varTitle),
                 ];
             }
             $variants = Shared::dedupeVariantsByGrams($rawVariants);
@@ -68,10 +90,6 @@ class ShopifyScraper implements RoasterScraper
                 $first = $p['images'][0] ?? null;
                 $imageUrl = is_array($first) ? ($first['src'] ?? null) : null;
             }
-
-            $productUrl = !empty($p['handle'])
-                ? $origin . '/products/' . $p['handle']
-                : null;
 
             $out[] = [
                 'name' => $title,

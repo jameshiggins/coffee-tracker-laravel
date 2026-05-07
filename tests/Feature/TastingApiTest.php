@@ -205,7 +205,12 @@ class TastingApiTest extends TestCase
 
         Sanctum::actingAs($user);
         $this->deleteJson("/api/tastings/{$tasting->id}")->assertNoContent();
-        $this->assertDatabaseMissing('tastings', ['id' => $tasting->id]);
+
+        // Q17: Tasting now uses SoftDeletes — the row stays in the DB
+        // (audit trail / undo) but is hidden from every public + my-tastings
+        // surface via the global SoftDeletes scope.
+        $this->assertSoftDeleted('tastings', ['id' => $tasting->id]);
+        $this->assertCount(0, $user->tastings()->get(), 'soft-deleted tastings hidden from my feed');
     }
 
     public function test_user_cannot_delete_someone_elses_tasting(): void

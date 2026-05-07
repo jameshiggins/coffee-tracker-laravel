@@ -13,12 +13,13 @@ class Coffee extends Model
 
     protected $fillable = [
         'roaster_id', 'source_id', 'name', 'origin', 'process', 'roast_level',
-        'varietal', 'tasting_notes', 'description', 'product_url', 'image_url',
-        'is_blend', 'removed_at',
+        'varietal', 'elevation_meters', 'tasting_notes', 'description',
+        'product_url', 'image_url', 'is_blend', 'removed_at',
     ];
 
     protected $casts = [
         'is_blend' => 'boolean',
+        'elevation_meters' => 'integer',
         'removed_at' => 'datetime',
     ];
 

@@ -59,12 +59,11 @@ class WooCommerceScraper implements RoasterScraper
             $tags = array_map(fn ($c) => is_array($c) ? ($c['name'] ?? '') : (string) $c, $categories);
             $productType = $tags[0] ?? '';
 
-            if (!Shared::looksLikeCoffee($title, $productType)) continue;
+            if (!Shared::looksLikeCoffee($title, $productType, $tags)) continue;
 
             $rawVariants = [];
             $variations = $p['variations'] ?? [];
             if (!empty($variations) && is_array($variations)) {
-                // Variations come back as array of per-variation objects (simplified shape)
                 foreach ($variations as $v) {
                     $varTitle = '';
                     foreach ($v['attributes'] ?? [] as $a) {
@@ -72,20 +71,22 @@ class WooCommerceScraper implements RoasterScraper
                     }
                     $grams = Shared::parseGrams($varTitle);
                     if ($grams === null) continue;
+                    $price = (float) ($v['prices']['price'] ?? 0) / 100;
+                    if ($price <= 0) continue;  // skip zero/missing prices
                     $rawVariants[] = [
                         'grams' => $grams,
-                        'price' => (float) ($v['prices']['price'] ?? 0) / 100, // Woo cents → dollars
+                        'price' => $price,
                         'available' => (bool) ($v['is_in_stock'] ?? true),
                         'source_id' => isset($v['id']) ? (string) $v['id'] : null,
                     ];
                 }
             } else {
-                // Simple product: one variant, parse grams from product name.
                 $grams = Shared::parseGrams($title);
-                if ($grams !== null) {
+                $price = (float) ($p['prices']['price'] ?? 0) / 100;
+                if ($grams !== null && $price > 0) {
                     $rawVariants[] = [
                         'grams' => $grams,
-                        'price' => (float) ($p['prices']['price'] ?? 0) / 100,
+                        'price' => $price,
                         'available' => (bool) ($p['is_in_stock'] ?? true),
                         'source_id' => null,
                     ];

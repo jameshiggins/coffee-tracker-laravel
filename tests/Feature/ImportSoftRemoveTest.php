@@ -8,6 +8,8 @@ use App\Models\Tasting;
 use App\Models\User;
 use App\Services\RoasterImporter;
 use App\Services\Scraping\AboutPageScraper;
+use App\Services\Scraping\FaviconScraper;
+use App\Services\Scraping\ShippingPolicyScraper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -31,7 +33,17 @@ class ImportSoftRemoveTest extends TestCase
         $about = new class extends AboutPageScraper {
             public function fetch(string $url): ?string { return null; }
         };
-        return new RoasterImporter(null, $about);
+        // No-op shipping scraper so tests don't have to mock /policies/shipping-policy.
+        $shipping = new class extends ShippingPolicyScraper {
+            public function fetch(string $url): array {
+                return ['shipping_cost' => null, 'free_shipping_over' => null, 'shipping_notes' => null];
+            }
+        };
+        // No-op favicon scraper for the same reason.
+        $favicon = new class extends FaviconScraper {
+            public function fetch(string $url): ?string { return null; }
+        };
+        return new RoasterImporter(null, $about, $shipping, $favicon);
     }
 
     private function shopifyResponse(array $products): array

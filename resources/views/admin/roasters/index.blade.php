@@ -7,6 +7,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h2>Manage Roasters</h2>
         <div style="display:flex; gap:10px;">
+            <a href="{{ route('admin.moderation.index') }}" class="btn btn-secondary">🚩 Moderation</a>
             <a href="{{ route('admin.roasters.import.form') }}" class="btn btn-secondary">🌐 Import from URL</a>
             <a href="{{ route('admin.roasters.create') }}" class="btn btn-primary">+ Add Roaster</a>
         </div>

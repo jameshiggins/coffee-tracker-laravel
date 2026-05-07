@@ -31,6 +31,11 @@ Route::get('/coffees/{coffee}/tastings', [TastingController::class, 'publicForCo
 Route::get('/tastings/{tasting}/public', [PublicProfileController::class, 'showTasting']);
 Route::get('/users/{displayName}', [PublicProfileController::class, 'showByDisplayName']);
 
+// Q17: anyone can flag a public tasting for moderator review.
+// Throttled hard — this is a write endpoint exposed to the open internet.
+Route::post('/tastings/{tasting}/report', [TastingController::class, 'report'])
+    ->middleware('throttle:10,1');
+
 // Q15: email verification — public link, signed by Laravel.
 Route::get('/email/verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
     ->middleware('signed')

@@ -4,15 +4,23 @@ use App\Http\Controllers\RoasterController;
 use App\Http\Controllers\Admin\RoasterController as AdminRoasterController;
 use App\Http\Controllers\Admin\CoffeeController as AdminCoffeeController;
 use App\Http\Controllers\Admin\VariantController as AdminVariantController;
+use App\Http\Controllers\Admin\ModerationController as AdminModerationController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect'])->name('auth.google.redirect');
 Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->name('auth.google.callback');
 
-// Public routes
-Route::get('/', [RoasterController::class, 'index'])->name('roasters.index');
-Route::get('/roasters/{roaster}', [RoasterController::class, 'show'])->name('roasters.show');
+// The user-facing app is React (Vite at :5174 in dev, the FRONTEND_URL
+// in prod). Anyone landing on the Laravel root or the old /roasters/*
+// Blade pages gets bounced to the React app — these legacy Blade views
+// pre-date the React rewrite and shouldn't be reached anymore.
+$frontendUrl = env('FRONTEND_URL', 'http://localhost:5174');
+Route::get('/', fn () => redirect()->away($frontendUrl . '/'));
+Route::get('/roasters/{slug}', fn (string $slug) => redirect()->away(env('FRONTEND_URL', 'http://localhost:5174') . '/beans?roaster=' . urlencode($slug)));
+
+// Convenience redirect: /admin → /admin/roasters (the actual admin home).
+Route::get('/admin', fn () => redirect()->route('admin.roasters.index'));
 
 // Admin routes
 Route::prefix('admin')->name('admin.')->group(function () {
@@ -72,6 +80,12 @@ Route::prefix('admin')->name('admin.')->group(function () {
             return back()->with('success', "Tried to refresh {$roaster->name}: " . $e->getMessage());
         }
     })->name('roasters.refresh');
+
+    // Q17: moderation queue
+    Route::get('moderation', [AdminModerationController::class, 'index'])->name('moderation.index');
+    Route::post('moderation/{tasting}/hide', [AdminModerationController::class, 'hide'])->name('moderation.hide');
+    Route::post('moderation/{id}/restore', [AdminModerationController::class, 'restore'])->name('moderation.restore');
+    Route::post('moderation/{tasting}/dismiss', [AdminModerationController::class, 'dismiss'])->name('moderation.dismiss');
 
     Route::post('roasters/{roaster}/geocode', function (\App\Models\Roaster $roaster) {
         if (!$roaster->street_address) {

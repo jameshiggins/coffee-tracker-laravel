@@ -28,21 +28,28 @@ class RoasterSeeder extends Seeder
                 [$data['latitude'], $data['longitude']] = $cityCoords[$data['city']];
             }
 
-            $roaster = Roaster::create($data);
+            // Idempotent — running this seeder twice (e.g. after a top-up
+            // migration) must not crash on the unique slug constraint.
+            $roaster = Roaster::updateOrCreate(['slug' => $data['slug']], $data);
 
             foreach ($coffeeData as $coffeeRow) {
                 $variants = $coffeeRow['variants'];
                 unset($coffeeRow['variants']);
 
-                $coffee = $roaster->coffees()->create($coffeeRow);
+                $coffee = $roaster->coffees()
+                    ->where('name', $coffeeRow['name'])
+                    ->first()
+                    ?: $roaster->coffees()->create($coffeeRow);
 
                 foreach ($variants as $v) {
-                    $coffee->variants()->create([
-                        'bag_weight_grams' => $v['grams'],
-                        'price'            => $v['price'],
-                        'in_stock'         => $v['in_stock'] ?? true,
-                        'purchase_link'    => $v['purchase_link'] ?? $roaster->website ?? null,
-                    ]);
+                    $coffee->variants()->updateOrCreate(
+                        ['bag_weight_grams' => $v['grams']],
+                        [
+                            'price'         => $v['price'],
+                            'in_stock'      => $v['in_stock'] ?? true,
+                            'purchase_link' => $v['purchase_link'] ?? $roaster->website ?? null,
+                        ]
+                    );
                 }
             }
         }
@@ -76,8 +83,8 @@ class RoasterSeeder extends Seeder
                         ]],
                 ]],
 
-            ['name' => 'Bows & Arrows', 'region' => 'British Columbia', 'city' => 'Victoria',
-                'website' => 'https://bowsandarrows.ca', 'has_shipping' => true, 'has_subscription' => true,
+            ['name' => 'Bows Coffee Roasters', 'region' => 'British Columbia', 'city' => 'Victoria',
+                'website' => 'https://bowscoffee.com', 'has_shipping' => true, 'has_subscription' => true,
                 'subscription_notes' => 'Bi-weekly or monthly, pick your roast preference',
                 'coffees' => [
                     ['name' => 'Colombian Huila', 'origin' => 'Colombia, Huila',
@@ -223,7 +230,7 @@ class RoasterSeeder extends Seeder
                 ]],
 
             ['name' => 'Pallet', 'region' => 'British Columbia', 'city' => 'Vancouver',
-                'website' => 'https://palletcoffee.com', 'has_shipping' => true, 'has_subscription' => true,
+                'website' => 'https://palletcoffeeroasters.com', 'has_shipping' => true, 'has_subscription' => true,
                 'coffees' => [
                     ['name' => 'Premium Single Origin', 'origin' => 'Colombia',
                         'process' => 'washed', 'roast_level' => 'light',
@@ -242,6 +249,14 @@ class RoasterSeeder extends Seeder
                             ['grams' => 340, 'price' => 27.50],
                         ]],
                 ]],
+
+            ['name' => 'Alluvium Coffee', 'region' => 'British Columbia', 'city' => 'Vancouver',
+                'website' => 'https://www.alluviumcoffee.com', 'has_shipping' => true,
+                'coffees' => []],
+
+            ['name' => 'Rogue Wave Coffee', 'region' => 'Alberta', 'city' => 'Edmonton',
+                'website' => 'https://roguewavecoffee.ca', 'has_shipping' => true,
+                'coffees' => []],
 
             ['name' => 'Modus', 'region' => 'British Columbia', 'city' => 'Vancouver',
                 'website' => 'https://moduscoffee.com', 'has_shipping' => true,

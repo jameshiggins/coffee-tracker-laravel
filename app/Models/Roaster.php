@@ -12,7 +12,7 @@ class Roaster extends Model
 
     protected $fillable = [
         'name', 'slug', 'city', 'region', 'country_code', 'street_address', 'postal_code',
-        'latitude', 'longitude', 'website', 'instagram', 'description',
+        'latitude', 'longitude', 'website', 'instagram', 'favicon_url', 'description',
         'has_shipping', 'ships_to', 'shipping_cost', 'free_shipping_over', 'shipping_notes',
         'has_subscription', 'subscription_notes', 'is_active',
         'platform', 'last_imported_at', 'last_import_status', 'last_import_error',
