@@ -1,0 +1,41 @@
+# fly.toml app configuration for coffee-tracker-laravel
+# See https://fly.io/docs/reference/configuration/
+
+app = 'coffee-tracker-laravel'
+primary_region = 'sjc'
+console_command = 'php /var/www/html/artisan tinker'
+
+[build]
+  [build.args]
+    PHP_VERSION = '8.2'
+
+[env]
+  APP_ENV = 'production'
+  APP_DEBUG = 'false'
+  APP_URL = 'https://coffee-tracker-laravel.fly.dev'
+  LOG_CHANNEL = 'stderr'
+  LOG_LEVEL = 'info'
+  LOG_STDERR_FORMATTER = 'Monolog\Formatter\JsonFormatter'
+  SESSION_DRIVER = 'cookie'
+  SESSION_SECURE_COOKIE = 'true'
+  DB_CONNECTION = 'sqlite'
+  DB_DATABASE = '/data/database.sqlite'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  # SQLite + single mounted volume = single-machine app. Don't scale beyond 1.
+  min_machines_running = 1
+  processes = ['app']
+
+[[mounts]]
+  source = 'coffee_db'
+  destination = '/data'
+  initial_size = '1gb'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
