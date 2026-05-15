@@ -24,9 +24,12 @@ console_command = 'php /var/www/html/artisan tinker'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  # Machine must stay up 24/7 so the in-container Laravel scheduler keeps
+  # ticking (daily import + restock alerts). auto_stop would sleep the
+  # scheduler and miss the 11:00 UTC import. Single machine, never scale
+  # beyond 1 (SQLite + single mounted volume).
+  auto_stop_machines = 'off'
   auto_start_machines = true
-  # SQLite + single mounted volume = single-machine app. Don't scale beyond 1.
   min_machines_running = 1
   processes = ['app']
 

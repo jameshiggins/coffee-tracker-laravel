@@ -26,4 +26,23 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
+# Background scheduler. Laravel's schedule:work loops every minute and
+# dispatches the jobs defined in app/Console/Kernel.php:
+#   - roasters:import-all  daily 11:00 UTC (inventory/price refresh)
+#   - alerts:restock       daily 14:00 UTC (wishlist back-in-stock emails)
+# Wrapped in a restart loop so a crash doesn't silently kill auto-refresh
+# (the whole point of "working automatically"). Runs as www-data so writes
+# to the SQLite volume match the Apache worker ownership.
+#
+# NOTE: this requires the Fly machine to stay up 24/7 — see
+# auto_stop_machines = 'off' in fly.toml. If the machine slept, the
+# scheduler would sleep with it and the 11:00 UTC import would be missed.
+(
+  while true; do
+    su -s /bin/sh -c "php /var/www/html/artisan schedule:work" www-data || true
+    echo "[entrypoint] schedule:work exited unexpectedly; restarting in 5s" >&2
+    sleep 5
+  done
+) &
+
 exec apache2-foreground
