@@ -30,12 +30,26 @@
                 <input type="text" name="name" value="{{ old('name', $roaster->name) }}" required>
             </div>
             <div class="form-group">
-                <label>Region *</label>
+                <label>Province / Territory *</label>
+                @php
+                    $provinces = [
+                        'British Columbia', 'Alberta', 'Saskatchewan', 'Manitoba',
+                        'Ontario', 'Quebec', 'New Brunswick', 'Nova Scotia',
+                        'Prince Edward Island', 'Newfoundland and Labrador',
+                        'Yukon', 'Northwest Territories', 'Nunavut',
+                    ];
+                    $currentRegion = old('region', $roaster->region);
+                @endphp
                 <select name="region" required>
-                    <option value="">Select Region</option>
-                    @foreach(['Victoria', 'Vancouver', 'Interior', 'Kootenays', 'Okanagan'] as $r)
-                        <option value="{{ $r }}" @selected(old('region', $roaster->region) === $r)>{{ $r }}</option>
+                    <option value="">Select Province / Territory</option>
+                    @foreach($provinces as $r)
+                        <option value="{{ $r }}" @selected($currentRegion === $r)>{{ $r }}</option>
                     @endforeach
+                    {{-- Preserve any legacy/non-standard value so editing an
+                         old roaster doesn't silently blank its region. --}}
+                    @if($currentRegion && !in_array($currentRegion, $provinces, true))
+                        <option value="{{ $currentRegion }}" selected>{{ $currentRegion }} (legacy)</option>
+                    @endif
                 </select>
             </div>
         </div>
