@@ -22,8 +22,9 @@ Route::get('/roasters/{slug}', fn (string $slug) => redirect()->away(env('FRONTE
 // Convenience redirect: /admin → /admin/roasters (the actual admin home).
 Route::get('/admin', fn () => redirect()->route('admin.roasters.index'));
 
-// Admin routes
-Route::prefix('admin')->name('admin.')->group(function () {
+// Admin routes — HTTP Basic gated (BasicAdminAuth). The whole group is
+// behind a single credential; the React app's Sanctum auth is separate.
+Route::prefix('admin')->name('admin.')->middleware('admin.basic')->group(function () {
     Route::resource('roasters', AdminRoasterController::class)->except(['show']);
 
     Route::get('roasters/{roaster}/coffees/create', [AdminCoffeeController::class, 'create'])

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'BC Coffee Roasters Price Tracker')</title>
+    <title>@yield('title', 'Roastmap Admin')</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -206,10 +206,13 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>☕ BC Coffee Roasters</h1>
-            <p>Track single-origin coffee prices across British Columbia</p>
+            <h1>🫘 Roastmap Admin</h1>
+            <p>Canadian specialty coffee directory — operator console</p>
             <div class="header-nav">
-                <a href="{{ route('roasters.index') }}" class="{{ request()->routeIs('roasters.index') ? 'active' : '' }}">Price Tracker</a>
+                {{-- url('/') 302-redirects to the live React site (FRONTEND_URL).
+                     The old route('roasters.index') Blade page was removed in the
+                     React migration — referencing it 500'd every admin page. --}}
+                <a href="{{ url('/') }}" target="_blank" rel="noopener">↗ View live site</a>
                 <a href="{{ route('admin.roasters.index') }}" class="{{ request()->routeIs('admin.*') ? 'active' : '' }}">Admin</a>
             </div>
         </div>
