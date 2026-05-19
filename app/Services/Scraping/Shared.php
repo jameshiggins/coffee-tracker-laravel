@@ -437,6 +437,23 @@ final class Shared
             if (in_array($tg, $gearExactTags, true)) return false;
         }
 
+        // Tea / tisane / non-coffee infusions. Their titles often contain
+        // "Blend" or other positive markers that sneak past the positive
+        // checks below ("Royal Oolong Blend", "Vanilla Rooibos Blend").
+        // The product_type 'tea' / 'matcha' exclusion above catches
+        // well-typed listings; this title-level guard catches tea sold
+        // under generic types like 'Loose Leaf' or no type at all. We do
+        // NOT match bare 'tea' here — only unambiguous tea-genus / tisane
+        // vocabulary — so a fanciful coffee name can't false-trigger.
+        $teaWords = [
+            'oolong', 'pu-?erh', 'puer', 'sencha', 'gyokuro', 'genmaicha',
+            'hojicha', 'matcha', 'rooibos', 'yerba\s+mate', 'mate\s+tea',
+            'chai\s+(?:tea|latte|blend)', 'herbal\s+tea', 'green\s+tea',
+            'black\s+tea', 'white\s+tea', 'oolong\s+tea', 'tisane',
+            'loose\s+leaf',
+        ];
+        if (preg_match('/\b(' . implode('|', $teaWords) . ')\b/u', $titleLower)) return false;
+
         // Positive signals — any of these = coffee.
         // 1) product_type contains a coffee/brew-method keyword
         $coffeeTypeKeywords = ['coffee', 'bean', 'filter', 'espresso', 'drip', 'pour over',
@@ -483,5 +500,25 @@ final class Shared
         $isSingleOrigin = str_contains($tagStr, 'single origin') || str_contains($tagStr, 'single-origin');
         $isEspresso = in_array('espresso', $tagsLower, true) || str_contains($title, 'Espresso');
         return $isEspresso && !$isSingleOrigin;
+    }
+
+    /**
+     * Scrub a string of invalid UTF-8 byte sequences. Scraped product
+     * feeds sometimes return text in Latin-1 / Windows-1252 / mixed
+     * encodings; storing those raw bytes is fine for SQLite but blows
+     * up `json_encode` later with "Malformed UTF-8 characters" → API
+     * 500. Round-tripping through `mb_convert_encoding('UTF-8','UTF-8')`
+     * replaces invalid sequences with U+FFFD without rejecting valid
+     * UTF-8 (it's a no-op on clean input — `Café Saint-Henri` stays
+     * `Café Saint-Henri`).
+     *
+     * Apply at write-time in the importer so the DB never grows new
+     * bad bytes. The API also defensively passes JSON_INVALID_UTF8_
+     * SUBSTITUTE so any historical bad rows render instead of 500.
+     */
+    public static function sanitizeUtf8(?string $s): ?string
+    {
+        if ($s === null) return null;
+        return mb_convert_encoding($s, 'UTF-8', 'UTF-8');
     }
 }

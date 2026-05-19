@@ -24,9 +24,14 @@ class RoasterApiController extends Controller
         $coffeeIds = $roasters->flatMap(fn ($r) => $r->coffees->pluck('id'))->all();
         $ratingMap = $this->buildRatingMap($coffeeIds);
 
+        // JSON_INVALID_UTF8_SUBSTITUTE: render U+FFFD in place of invalid
+        // UTF-8 bytes instead of throwing InvalidArgumentException (which
+        // 500s the whole endpoint when any single coffee has bad bytes).
+        // Import-time sanitize in RoasterImporter prevents new bad bytes;
+        // this defends against the existing tail of historical rows.
         return response()->json([
             'roasters' => $roasters->map(fn ($r) => $this->transformRoaster($r, false, $ratingMap))->values(),
-        ]);
+        ], 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     public function show(Roaster $roaster): JsonResponse
@@ -36,7 +41,7 @@ class RoasterApiController extends Controller
             'coffees.variants',
         ]);
         $ratingMap = $this->buildRatingMap($roaster->coffees->pluck('id')->all());
-        return response()->json($this->transformRoaster($roaster, true, $ratingMap));
+        return response()->json($this->transformRoaster($roaster, true, $ratingMap), 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     /** Last-resort favicon fallback via Google's public S2 service. */

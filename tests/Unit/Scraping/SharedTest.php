@@ -223,4 +223,80 @@ class SharedTest extends TestCase
         $this->assertFalse(Shared::isBlend('Ethiopia Yirgacheffe', 'Coffee', ['Single Origin']));
         $this->assertFalse(Shared::isBlend('Brazil Natural', 'Coffee', []));
     }
+
+    // ── looksLikeCoffee: tea / tisane title-level rejection ───────────────
+    //
+    // Tea sometimes ships under generic product_type ('Loose Leaf', '') so
+    // the 'tea'/'matcha' product_type exclusion misses it; its titles
+    // often contain "Blend" which used to slip past the positive title
+    // regex (an oolong "blend" was being indexed as a coffee). This
+    // title-level tea-genus vocabulary closes that hole.
+
+    /** @return array<string, array{0:string,1:string,2:array<int,string>}> */
+    public static function teaCases(): array
+    {
+        return [
+            // The original bug: tea with non-Tea type + "Blend" in title
+            'oolong blend loose leaf' => ['Royal Oolong Tea Blend', 'Loose Leaf', []],
+            'oolong no type'          => ['Premium Oolong', '', []],
+            'pu-erh tea type'         => ['Aged Pu-Erh 2015', 'Tea', []],
+            'pu-erh no type'          => ['Aged Pu-Erh 2015', '', []],
+            'puer alt spelling'       => ['Puer Cake', '', []],
+            'sencha green tea'        => ['Sencha Green Tea', '', []],
+            'gyokuro'                 => ['Gyokuro Premium', '', []],
+            'matcha powder'           => ['Ceremonial Matcha Powder', '', []],
+            'rooibos blend'           => ['Vanilla Rooibos Blend', 'Loose Leaf', []],
+            'yerba mate'              => ['Argentine Yerba Mate', '', []],
+            'chai blend'              => ['Spiced Chai Blend', '', []],
+            'herbal tea'              => ['Calming Herbal Tea', 'Loose Leaf', []],
+            'green tea generic'       => ['Premium Green Tea', '', []],
+            'tisane'                  => ['Bedtime Tisane', '', []],
+            'loose leaf descriptor'   => ['House Loose Leaf Selection', '', []],
+        ];
+    }
+
+    /** @param array<int,string> $tags */
+    #[DataProvider('teaCases')]
+    public function test_looks_like_coffee_rejects_tea(string $title, string $type, array $tags): void
+    {
+        $this->assertFalse(
+            Shared::looksLikeCoffee($title, $type, $tags),
+            "Expected tea/tisane to be rejected: \"{$title}\" [{$type}]"
+        );
+    }
+
+    /** Real coffee with "blend" in title still passes — no-regression. */
+    public function test_looks_like_coffee_keeps_real_blends(): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee('Mexico Espresso Blend', 'Coffee', ['Blend']));
+        $this->assertTrue(Shared::looksLikeCoffee('Roastmap House Blend', '', ['Coffee', 'Blend']));
+        $this->assertTrue(Shared::looksLikeCoffee('Decaf Blend Colombia', 'Coffee', []));
+    }
+
+    // ── sanitizeUtf8 ──────────────────────────────────────────────────────
+
+    public function test_sanitizeUtf8_preserves_clean_utf8(): void
+    {
+        $this->assertSame('Café Saint-Henri', Shared::sanitizeUtf8('Café Saint-Henri'));
+        $this->assertSame('Yirgacheffe — washed', Shared::sanitizeUtf8('Yirgacheffe — washed'));
+        $this->assertSame('', Shared::sanitizeUtf8(''));
+        $this->assertNull(Shared::sanitizeUtf8(null));
+    }
+
+    public function test_sanitizeUtf8_scrubs_invalid_byte_sequences_so_json_encode_does_not_throw(): void
+    {
+        // A lone Latin-1 byte (0xE9 = 'é' in Latin-1) is invalid UTF-8.
+        // Raw json_encode of the unsanitized string returns false +
+        // JSON_ERROR_UTF8 — which is what caused the prod 500 on
+        // /api/roasters before this fix.
+        $bad = "Cafe\xE9 Espresso";
+        $this->assertFalse(json_encode(['name' => $bad]));
+        $this->assertSame(JSON_ERROR_UTF8, json_last_error());
+
+        $cleaned = Shared::sanitizeUtf8($bad);
+        $this->assertNotNull($cleaned);
+        $encoded = json_encode(['name' => $cleaned]);
+        $this->assertIsString($encoded, 'json_encode should not fail after sanitize');
+        $this->assertStringContainsString('Espresso', $encoded);
+    }
 }

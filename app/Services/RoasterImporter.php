@@ -237,6 +237,15 @@ class RoasterImporter
             'removed_at' => null, // un-remove if it had been soft-removed
         ];
 
+        // Scrub bad bytes out of every string field — scraped product
+        // feeds occasionally return Latin-1 / Windows-1252 / mixed
+        // encodings whose raw bytes break json_encode at read time.
+        // No-op on clean UTF-8; replaces invalid sequences with U+FFFD.
+        $payload = array_map(
+            fn ($v) => is_string($v) ? Shared::sanitizeUtf8($v) : $v,
+            $payload
+        );
+
         if ($existing) {
             $existing->fill($payload)->save();
             $coffee = $existing;
