@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Scraping\Address\ScrapedAddress;
 use App\Services\Scraping\Shared;
 use Illuminate\Support\Facades\Http;
 
@@ -49,6 +50,62 @@ class NominatimGeocoder
                 'lng' => (float) $hits[0]['lon'],
                 'display_name' => $hits[0]['display_name'] ?? null,
             ];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Q-AR step 3: search Nominatim by roaster NAME plus city + country.
+     * Returns a ScrapedAddress(source='osm') on success — including lat/lng
+     * so the cascade can skip a separate geocode round-trip.
+     *
+     * Distinct from geocode() which takes a free-form street string. Here we
+     * trust OSM's `addressdetails=1` payload to give us structured fields.
+     * Rejects results without a house number (city-level rows give us nothing
+     * the seeder hasn't already supplied).
+     */
+    public function searchByName(string $name, ?string $city = null, ?string $country = 'Canada'): ?ScrapedAddress
+    {
+        $query = trim(implode(', ', array_filter([$name, $city, $country])));
+        if ($query === '') return null;
+
+        try {
+            $response = Http::timeout(10)
+                ->withOptions(Shared::clientOptions())
+                ->withHeaders([
+                    'User-Agent' => 'SpecialtyCoffeeRoasters/1.0 admin geocoder (contact: directory)',
+                    'Accept-Language' => 'en',
+                ])
+                ->acceptJson()
+                ->get(self::BASE, [
+                    'q' => $query,
+                    'format' => 'json',
+                    'limit' => 1,
+                    'addressdetails' => 1,
+                    'countrycodes' => 'ca',
+                ]);
+            if (!$response->ok()) return null;
+            $hits = $response->json();
+            if (!is_array($hits) || empty($hits[0])) return null;
+            $hit = $hits[0];
+            $addr = $hit['address'] ?? [];
+            $houseNumber = $addr['house_number'] ?? null;
+            $road = $addr['road'] ?? null;
+            // Without a house number AND road we don't have a precise pin —
+            // bail out and let the cascade fall through to Google Places.
+            if (!$houseNumber || !$road) return null;
+            $street = trim("$houseNumber $road");
+
+            return new ScrapedAddress(
+                source: 'osm',
+                street_address: $street,
+                postal_code: $addr['postcode'] ?? null,
+                city: $addr['city'] ?? $addr['town'] ?? $addr['village'] ?? null,
+                region: $addr['state'] ?? null,
+                latitude: isset($hit['lat']) ? (float) $hit['lat'] : null,
+                longitude: isset($hit['lon']) ? (float) $hit['lon'] : null,
+            );
         } catch (\Throwable) {
             return null;
         }

@@ -16,18 +16,21 @@ class Roaster extends Model
         'has_shipping', 'ships_to', 'shipping_cost', 'free_shipping_over', 'shipping_notes',
         'has_subscription', 'subscription_notes', 'is_active',
         'platform', 'last_imported_at', 'last_import_status', 'last_import_error',
+        'address_source', 'address_verified_at', 'is_online_only', 'google_place_id',
     ];
 
     protected $casts = [
         'has_shipping' => 'boolean',
         'has_subscription' => 'boolean',
         'is_active' => 'boolean',
+        'is_online_only' => 'boolean',
         'shipping_cost' => 'decimal:2',
         'free_shipping_over' => 'decimal:2',
         'latitude' => 'float',
         'longitude' => 'float',
         'ships_to' => 'array',
         'last_imported_at' => 'datetime',
+        'address_verified_at' => 'datetime',
     ];
 
     public function coffees(): HasMany

@@ -38,4 +38,12 @@ return [
         'frontend_url' => env('FRONTEND_URL', 'http://localhost:5174'),
     ],
 
+    // Q-AR step 4: Google Places "Find Place from Text" for address fallback.
+    // Leave the key unset to skip Google Places in the cascade; see
+    // app/Services/Scraping/Address/GooglePlacesAddressResolver.php for the
+    // exact provisioning steps.
+    'google_places' => [
+        'key' => env('GOOGLE_PLACES_API_KEY'),
+    ],
+
 ];
