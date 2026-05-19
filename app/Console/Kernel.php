@@ -30,6 +30,18 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onOneServer()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+
+        // Q-AR: monthly address-resolution sweep. Addresses rarely change, so
+        // a once-a-month cascade is plenty — running daily would spam roaster
+        // sites and Nominatim for no real benefit. 12:00 UTC = 05:00 PST on
+        // the 1st of each month, well clear of the daily import at 11:00 UTC.
+        // Already-resolved roasters are skipped without --force, so this run
+        // is small after the first sweep.
+        $schedule->command('roasters:scrape-addresses')
+            ->monthlyOn(1, '12:00')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
     }
 
     /**

@@ -107,4 +107,44 @@ class RoasterApiTest extends TestCase
         $this->getJson('/api/roasters/does-not-exist')->assertNotFound();
     }
 
+    public function test_index_exposes_is_online_only_and_address_source(): void
+    {
+        // Resolved through JSON-LD on the roaster's own site.
+        $this->seedRoaster([
+            'slug' => 'jsonld-shop',
+            'name' => 'JSON-LD Shop',
+            'address_source' => 'jsonld',
+            'is_online_only' => false,
+        ]);
+        // Cascade exhausted every step — online-only operation, no map pin.
+        $this->seedRoaster([
+            'slug' => 'online-only-shop',
+            'name' => 'Online Only Shop',
+            'address_source' => null,
+            'is_online_only' => true,
+        ]);
+
+        $response = $this->getJson('/api/roasters')->assertOk();
+        $byName = collect($response->json('roasters'))->keyBy('name');
+
+        $this->assertSame('jsonld', $byName['JSON-LD Shop']['address_source']);
+        $this->assertFalse($byName['JSON-LD Shop']['is_online_only']);
+
+        $this->assertNull($byName['Online Only Shop']['address_source']);
+        $this->assertTrue($byName['Online Only Shop']['is_online_only']);
+    }
+
+    public function test_show_exposes_is_online_only_and_address_source(): void
+    {
+        $this->seedRoaster([
+            'address_source' => 'osm',
+            'is_online_only' => false,
+        ]);
+
+        $this->getJson('/api/roasters/test-roaster')
+            ->assertOk()
+            ->assertJsonPath('address_source', 'osm')
+            ->assertJsonPath('is_online_only', false);
+    }
+
 }

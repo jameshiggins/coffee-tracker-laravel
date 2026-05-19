@@ -87,6 +87,12 @@ class RoasterApiController extends Controller
             'postal_code' => $roaster->postal_code,
             'latitude' => $roaster->latitude,
             'longitude' => $roaster->longitude,
+            // Q-AR: which cascade step produced the resolved address (or null).
+            // The React map uses `is_online_only` to suppress markers for
+            // roasters that genuinely have no physical address — otherwise
+            // every online-only shop would stack on a city centroid.
+            'address_source' => $roaster->address_source,
+            'is_online_only' => (bool) $roaster->is_online_only,
             'ships_to' => $roaster->ships_to ?? [],
             'website' => $roaster->website,
             'instagram' => $roaster->instagram,
