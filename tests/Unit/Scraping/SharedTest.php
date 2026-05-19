@@ -87,6 +87,113 @@ class SharedTest extends TestCase
         $this->assertTrue(Shared::looksLikeCoffee('Ethiopia Yirgacheffe', ''));
     }
 
+    // ── looksLikeCoffee: Rogue Wave over-capture regression suite ─────────
+    //
+    // Rogue Wave Coffee sells ~470 non-coffee SKUs (brewers, grinders,
+    // kettles, scales, drippers, filter papers, drinkware, merch, water,
+    // subscriptions) alongside ~260 real coffees. Stores file gear under a
+    // distinct product_type ("Brewer", "Grinder", …) and/or tag it with
+    // gear markers ("New Gear & Equipment", "SmartrrFilter:Brewers"), but
+    // some gear titles literally contain "coffee"/"espresso" and slip past
+    // the legacy gift-card/cleaner guards. These cases were all wrongly
+    // imported as coffees before the filter was tightened.
+
+    /** @return array<string, array{0:string,1:string,2:array<int,string>}> */
+    public static function rogueWaveGearCases(): array
+    {
+        return [
+            // product_type-based equipment (the bulk of the catalog)
+            'brewer type'        => ['UFO - Dripper V3', 'Brewer', ['Brewer', 'SmartrrFilter:Brewers']],
+            'grinder type'       => ['1ZPRESSO - K-ULTRA', 'Grinder', ['Grinder', 'Hand Grinder']],
+            'kettle type'        => ['Fellow - Stagg EKG Electric Kettle | PRO', 'Kettle', ['Kettle']],
+            'scale type'         => ['Acaia Pearl Digital Coffee Scale', 'Scale', ['Scale']],
+            'server type'        => ['Hario - V60 Range Server 600 mL', 'Server', ['Carafe', 'Server']],
+            'drinkware type'     => ['ORIGAMI - Aroma Cup 200ml', 'Drinkware', ['Cup', 'Mug']],
+            'filters type'       => ['Hario - V60-02 Paper Filters 40pack', 'Filters', ['Filter', 'Filters']],
+            'tamper type'        => ['Barista Hustle - The Tamper | 58.4mm', 'Tamper', ['Espresso Accessories']],
+            'water type'         => ['Aquacode - Coffee Brewing Water (1 Gal)', 'Water', ['Water', 'New Gear & Equipment']],
+            'milk jug type'      => ['MHW-3BOMBER - 5.0 Milk Pitcher | 600 mL', 'Milk Jug', []],
+            'shirt type'         => ['Rogue Wave Coffee Branded T-shirt', 'Shirt', []],
+            'sticker type'       => ['Niche Create - Pour Over Stickers', 'Sticker', []],
+            'spoon type'         => ['Umeshiso - Cupping Spoon | Gold', 'Spoon', []],
+            'drip maker type'    => ['Fellow - Aiden Precision Coffee Maker', 'Drip Coffee Makers', ['Brewer']],
+            'espresso accessory' => ['MHW-3BOMBER - Espresso Puck Screen', 'Espresso Accessories', ['Espresso']],
+            'grinder accessory'  => ['Urnex - Grindz Grinder Cleaner', 'Coffee Grinder Accessories', []],
+            // gear with NO/empty product_type — caught by title vocabulary
+            'dripper title'      => ['Clever Dripper', '', []],
+            'negotiator title'   => ['Orea - Negotiator Tool for V4', '', ['Brewer']],
+            'wdt tool title'     => ['MHW-3BOMBER - Lightning Needle Distribution Tool', '', ['WDT']],
+            'cupping bowl title' => ['Barista Hustle - Cupping Bowls Black', '', []],
+            'hand grinder title' => ['Comandante - C40 MK4 Hand Grinder', '', []],
+            'french press title' => ['Timemore - Little U French Press', '', []],
+            'recipe card title'  => ['Espresso Recipe Card', '', ['merch']],
+            'alt milk title'     => ['Alternative M*lk - Oat, Almond, Soy', '', []],
+            // gear whose ONLY coffee-ish signal is a loose tag substring
+            // ("SmartrrFilter:Brewers" used to match the "filter" marker,
+            //  "Espresso Accessories" used to match "espresso")
+            'gear via filter tag'   => ['Munieq - Tetra Dripper Stainless', 'Brewer', ['SmartrrFilter:Brewers']],
+            'gear via espresso tag' => ['MHW-3BOMBER - Silicone Air Blower', 'Scale', ['Espresso Accessories']],
+            'gear via gear tag'     => ['Comandante - Travel Black Bag', 'Grinder', ['New Gear & Equipment']],
+            // pure cascara (dried cherry husk tisane) — not roasted beans
+            'cascara product'    => ['Cascara Dried Coffee Cherry - Peru', 'Coffee', ['Coffee', 'Tea']],
+            'cascara no type'    => ['Cascara Dried Coffee Cherry - Nicaragua', '', ['Coffee', 'Tea']],
+            // internal / placeholder SKUs
+            'secret shop'        => ['Secret shop', 'Coffee', []],
+            'test roast'         => ['Coffee Lab: TEST ROAST', 'Coffee', ['Coffee']],
+            'roasters club'      => ["Roaster's Club", 'Coffee', []],
+        ];
+    }
+
+    /**
+     * @param array<int, string> $tags
+     */
+    #[DataProvider('rogueWaveGearCases')]
+    public function test_looks_like_coffee_rejects_rogue_wave_gear(string $title, string $type, array $tags): void
+    {
+        $this->assertFalse(
+            Shared::looksLikeCoffee($title, $type, $tags),
+            "Expected gear/merch to be rejected: \"{$title}\" [{$type}]"
+        );
+    }
+
+    /** @return array<string, array{0:string,1:string,2:array<int,string>}> */
+    public static function rogueWaveRealCoffeeCases(): array
+    {
+        // Representative slice of Rogue Wave's actual coffee catalog. None
+        // of these may regress when tightening the gear filters. The hard
+        // ones: cascara-as-process, "Filter"/"Espresso" tags, and the
+        // wave-named house blends that carry no product_type or tags.
+        return [
+            'single origin colombia'    => ['Colombia - La Divisa | Pink Bourbon Washed', 'Coffee', ['Beans', 'Coffee', 'Espresso', 'Filter']],
+            'single origin ethiopia'    => ['Ethiopia - Halo Beriti | Special Prep Natural', 'Coffee', ['Beans', 'Coffee', 'Filter']],
+            'panama geisha'             => ['Panama - Carmen Estate Caturra Lot 4', 'Coffee', ['Beans', 'Coffee', 'Espresso']],
+            'decaf'                     => ['Colombia - El Vergel Condor Decaf 2026', 'Coffee', ['Beans', 'Coffee']],
+            'house blend "Rogue Wave"'  => ['Rogue Wave', '', []],
+            'house blend "Surging Wave"'=> ['Surging Wave', '', []],
+            'house blend "Gentle Wave"' => ['Gentle Wave', '', []],
+            // "cascara" appears as a PROCESS descriptor on a real bean —
+            // must NOT be filtered out like the standalone cascara product.
+            'cascara-infused real bean' => ['Ethiopia - Idido Cascara Infused | Washed', 'Coffee', ['Beans', 'Coffee', 'Espresso', 'Filter']],
+            'cascara co-ferment bean'   => ['Colombia - El Diviso Cascara Co-Ferment | Natural', 'Coffee', ['Beans', 'Coffee']],
+            // brew-method words appearing legitimately in coffee context.
+            'filter-tagged single origin' => ['Burundi - Kayanza | Washed', 'Filter', ['Single Origin', 'Filter']],
+            'espresso-typed blend'      => ['Nocturnal Espresso', 'Espresso', ['Espresso', 'Blend']],
+            'whole bean type'           => ['Kenya - Gichuka Factory | Washed', 'Whole Bean', ['Coffee']],
+        ];
+    }
+
+    /**
+     * @param array<int, string> $tags
+     */
+    #[DataProvider('rogueWaveRealCoffeeCases')]
+    public function test_looks_like_coffee_keeps_real_coffee_through_tightened_filters(string $title, string $type, array $tags): void
+    {
+        $this->assertTrue(
+            Shared::looksLikeCoffee($title, $type, $tags),
+            "Expected real coffee to be kept: \"{$title}\" [{$type}]"
+        );
+    }
+
     // ── isBlend ───────────────────────────────────────────────────────────
 
     public function test_is_blend_explicit_signals(): void

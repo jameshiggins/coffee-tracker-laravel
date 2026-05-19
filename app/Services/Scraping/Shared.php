@@ -229,14 +229,46 @@ final class Shared
         // Hard exclusions by product type — gear, gift cards, classes, etc.
         // Bundle / sample-flight / instant / capsule pods aren't whole-bean
         // bags-of-coffee for the purposes of this directory.
+        //
+        // NOTE: bare brew-method words ("filter", "espresso", "drip", "pour
+        // over", "omni", "roast") are deliberately NOT in this list — many
+        // specialty roasters use them as the coffee product_type (Phil &
+        // Sebastian => "Filter", others => "Espresso"). Equipment instead
+        // gets its OWN distinct product_type ("Brewer", "Grinder", "Kettle",
+        // "Drip Coffee Makers", …) which is what we exclude here. Big stores
+        // with a deep hardware catalog (Rogue Wave: ~470 gear SKUs vs ~260
+        // coffees) are the reason this list is exhaustive.
         $excludeTypes = ['equipment', 'gear', 'merch', 'merchandise', 'gift card', 'subscription',
-                         'apparel', 'class', 'workshop', 'event', 'chocolate', 'tea', 'syrup', 'milk',
+                         'apparel', 'clothing', 'class', 'workshop', 'event', 'chocolate', 'tea',
+                         'matcha', 'syrup', 'milk', 'water',
                          'bundle', 'capsule', 'pod', 'instant', 'insurance', 'goods', 'shopstorm',
                          'card', 'voucher', 'cleaning', 'cleaner', 'descaling', 'descaler',
-                         'accessory', 'accessories', 'tool', 'book', 'ebook'];
+                         'accessory', 'accessories', 'tool', 'book', 'ebook',
+                         // Brew hardware / vessels / serveware. These are the
+                         // distinct product_type values stores assign to gear.
+                         // Kept specific enough that they can't be a substring
+                         // of a real coffee product_type ("Coffee", "Filter",
+                         // "Espresso", "Beans", "Whole Bean", "Drip", "Omni",
+                         // "Roast") — e.g. we use 'drinkware' not 'cup',
+                         // 'serveware' not 'glass', so "Whole Bean" / "Filter"
+                         // stay clear.
+                         'brewer', 'dripper', 'grinder', 'kettle', 'scale', 'server', 'serveware',
+                         'drinkware', 'glassware', 'tamper', 'portafilter', 'maker',
+                         'machine', 'spoon', 'scoop', 'sticker', 'shirt', 'hoodie',
+                         'sweater', 'apron', 'tote bag', 'milk jug', 'pitcher', 'carafe',
+                         'tumbler', 'home & garden', 'serving',
+                         'holder', 'tray', 'key chain', 'keychain', 'storage',
+                         'container', 'post card', 'postcard', 'filters', 'filter paper',
+                         'paper filter', 'distributor'];
         foreach ($excludeTypes as $bad) {
             if (str_contains($type, $bad)) return false;
         }
+        // Espresso/Coffee-equipment composite product_types — "Espresso
+        // Accessories", "Coffee Grinder Accessories", "Coffee Maker &
+        // Espresso Machine Accessories". The bare "accessor" token above
+        // catches these, but spell out the multi-word forms for clarity and
+        // to survive any future tokenizer change.
+        if (preg_match('/\b(accessor|equipment|grinder|brewing\s+gear)\b/i', $type)) return false;
         // Hard exclusions by title keywords.
         if (str_contains($titleLower, 'gift card') || str_contains($titleLower, 'subscription')) return false;
         if (str_contains($titleLower, 'sample set') || str_contains($titleLower, 'sample pack')) return false;
@@ -327,6 +359,84 @@ final class Shared
         // variant-level guard but at the product-title level.
         if (preg_match('/\b\d+\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:g|gram|grams|kg|oz|ounce|ounces|lb|lbs|pound|pounds)\b/u', $titleLower)) return false;
 
+        // Brew-gear vocabulary in the TITLE. Big stores carry deep hardware
+        // catalogs whose product_type we may not have mapped, and whose
+        // titles don't contain the word "coffee" so the gift-card/cleaner
+        // guards above miss them ("OREA - Tulip Folding Tool", "UFO -
+        // Dripper V3", "Comandante - C40 Hand Grinder", "MHW-3BOMBER -
+        // Espresso Puck Screen", "Barista Hustle - Cupping Bowls"). These
+        // words never appear in a real bag-of-beans product name, so a
+        // word-boundary match is safe.
+        $brewGearWords = [
+            'dripper', 'drippers', 'pour[\s-]?over\s+(?:kit|set|stand|holder)',
+            'negotiator', 'wdt\b', 'wdt\s+tool', 'distribution\s+tool', 'puck\s+screen',
+            'dosing\s+(?:cup|ring|funnel)', 'dosing\s+cup', 'tamper', 'tampers',
+            'portafilter', 'puck', 'cupping\s+(?:bowl|bowls|spoon|spoons|set|kit)',
+            'cupper\'?s\s+kit', 'gooseneck', 'decanter', 'french\s+press',
+            'aeropress', 'chemex', 'moka\s+pot', 'cold\s+brew\s+(?:maker|tower|kit)',
+            'milk\s+pitcher', 'knock\s+box', 'drip\s+stand', 'brew\s+stand',
+            'dripper\s+holder', 'dripper\s+stand', 'paper\s+filters?', 'filter\s+papers?',
+            'reusable\s+filter', 'metal\s+filter', 'cloth\s+filter', 'abaca',
+            'burr\b', 'burrs\b', 'crank\b', 'hand\s+grinder', 'electric\s+grinder',
+            'grinder\b', 'grinders\b', 'brew\s+kit', 'brewing\s+kit', 'travel\s+pack',
+            'carrying\s+case', 'polymer\s+jar', 'glass\s+jars?', 'vacuum\s+container',
+            'sensory\s+(?:cup|glass|flavou?r)', 'flavou?r\s+cup', 'aroma\s+(?:cup|mug)',
+            'tasting\s+glass', 'wine\s+glass', 'recipe\s+card', 'menu\b',
+            'm\*lk', 'alternative\s+milk',
+        ];
+        if (preg_match('/\b(' . implode('|', $brewGearWords) . ')/u', $titleLower)) return false;
+
+        // Cascara (dried coffee-cherry husk) is brewed like a tisane, not
+        // roasted coffee beans — stores file the standalone product under
+        // product_type "Coffee" with a "Tea" tag. BUT "cascara" is also a
+        // legit processing/co-ferment descriptor on real coffees
+        // ("Ethiopia - Idido Cascara Infused | Washed", "… Cascara
+        // Co-Ferment"). So only reject when cascara is clearly the PRODUCT:
+        //   - title starts with "Cascara …", or
+        //   - "cascara" sits next to cherry/husk/tea/tisane/pulp/skin/dried.
+        // A country/region-prefixed title with mid-name "Cascara <process>"
+        // is a real bean and falls through.
+        if (preg_match('/^\s*cascara\b/', $titleLower)
+            || preg_match('/\bcascara\b[\s\-|]*(?:dried|cherry|cherries|husks?|tea|tisane|pulp|skin|infusion)\b/', $titleLower)
+            || preg_match('/\b(?:dried|cherry|husks?|tea|tisane)\b[\s\-|]*cascara\b/', $titleLower)) {
+            return false;
+        }
+
+        // Internal / placeholder / mystery SKUs that aren't a real listed
+        // bag of beans: "Secret shop", "Coffee Lab: TEST ROAST",
+        // "Roaster's Club", "Surprise - We will choose…".
+        if (preg_match('/\b(secret\s+shop|test\s+roast|coffee\s+lab\s*:|roaster\'?s\s+club|staff\s+(?:pick\s+)?test|do\s+not\s+(?:buy|order|use)|placeholder|internal\s+use)\b/', $titleLower)) return false;
+
+        // Gear/merch TAGS. Equipment is tagged with unambiguous gear markers
+        // ("New Gear & Equipment", "Espresso Accessories", "Brewer",
+        // "SmartrrFilter:Brewers", "Dripper"). Critically this runs BEFORE
+        // the positive tag check below — without it, a "SmartrrFilter:Brewers"
+        // tag matches the loose "filter" positive marker and a grinder gets
+        // imported as coffee. We anchor on whole tag tokens (space-delimited)
+        // so a real coffee tagged "Filter" or "Espresso" is unaffected.
+        $gearTagPatterns = [
+            'gear\s*&?\s*equipment', 'new\s+gear', 'equipment',
+            'espresso\s+accessor', 'coffee\s+accessor', 'grinder\s+accessor',
+            'brewing\s+equipment', 'barista\s+(?:tool|supplies|accessor)',
+        ];
+        foreach ($gearTagPatterns as $gp) {
+            if (preg_match('/\b' . $gp . '/u', $tagStr)) return false;
+        }
+        // Exact gear tag tokens (the tag IS this word, not merely contains
+        // it). "brewer"/"brewers"/"dripper"/"grinder"/"kettle"/… as a
+        // standalone tag = hardware. "smartrrfilter:brewers" is the Smartrr
+        // subscription-app's collection tag for the Brewers category.
+        $gearExactTags = ['brewer', 'brewers', 'dripper', 'drippers', 'grinder', 'grinders',
+                          'kettle', 'kettles', 'scale', 'scales', 'tamper', 'tampers',
+                          'server', 'servers', 'serveware', 'drinkware', 'glassware',
+                          'merch', 'merchandise', 'apparel', 'sticker', 'stickers',
+                          'mug', 'mugs', 'tumbler', 'tumblers', 'spoon', 'spoons',
+                          'smartrrfilter:brewers', 'smartrrfilter:grinders',
+                          'smartrrfilter:accessories', 'smartrrfilter:drippers'];
+        foreach ($tagsLower as $tg) {
+            if (in_array($tg, $gearExactTags, true)) return false;
+        }
+
         // Positive signals — any of these = coffee.
         // 1) product_type contains a coffee/brew-method keyword
         $coffeeTypeKeywords = ['coffee', 'bean', 'filter', 'espresso', 'drip', 'pour over',
@@ -334,11 +444,16 @@ final class Shared
         foreach ($coffeeTypeKeywords as $kw) {
             if ($kw !== '' && str_contains($type, $kw)) return true;
         }
-        // 2) tags include a coffee marker (Shopify roasters tag heavily)
+        // 2) tags include a coffee marker (Shopify roasters tag heavily).
+        // Whole-token match only — the old loose `str_contains($tagStr,$kw)`
+        // fallback let "filter" hit "smartrrfilter:brewers" and "espresso"
+        // hit "espresso accessories", importing gear as coffee. The gear-tag
+        // guard above already removes the worst offenders; this stays strict.
         $coffeeTagKeywords = ['coffee', 'beans', 'single origin', 'single-origin', 'blend',
-                              'espresso', 'filter', 'decaf', 'whole bean'];
+                              'espresso', 'filter', 'decaf', 'whole bean', 'roasted coffee',
+                              'coffee beans'];
         foreach ($coffeeTagKeywords as $kw) {
-            if (str_contains($tagStr, ' ' . $kw . ' ') || str_contains($tagStr, $kw)) return true;
+            if (in_array($kw, $tagsLower, true)) return true;
         }
         // 3) title literally mentions coffee/blend/espresso/etc.
         if (preg_match('/\b(coffee|espresso|blend|decaf|single[- ]origin)\b/', $titleLower)) return true;
