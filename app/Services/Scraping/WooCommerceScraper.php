@@ -148,7 +148,9 @@ class WooCommerceScraper implements RoasterScraper
             $out[] = [
                 'name' => $title,
                 'source_id' => isset($p['id']) ? (string) $p['id'] : '',
-                'description' => strip_tags((string) ($p['short_description'] ?? $p['description'] ?? '')),
+                // Replace tags with space before strip_tags so adjacent
+                // block elements don't merge ("</p><p>" → "OriginProcess").
+                'description' => strip_tags(preg_replace('/<[^>]+>/', ' ', (string) ($p['short_description'] ?? $p['description'] ?? ''))),
                 'image_url' => $imageUrl,
                 'product_url' => $p['permalink'] ?? null,
                 'is_blend' => Shared::isBlend($title, $productType, $tags),

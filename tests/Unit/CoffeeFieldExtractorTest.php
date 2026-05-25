@@ -75,6 +75,34 @@ class CoffeeFieldExtractorTest extends TestCase
         $this->assertSame('Bourbon', CoffeeFieldExtractor::extractVarietal('Bourbon Street blend'));
     }
 
+    public function test_extract_varietal_prefers_specific_over_country_ambiguous(): void
+    {
+        // Continuum's "El Obraje Geisha - Colombia *Special Release*" was
+        // returning varietal=Colombia because Colombia (a real but rare
+        // varietal) appeared in the array before Geisha. The new specific-
+        // vs-ambiguous split makes Geisha win.
+        $this->assertSame('Geisha', CoffeeFieldExtractor::extractVarietal('El Obraje Geisha - Colombia *Special Release*'));
+        // A string with only a country marker for Colombia and no other
+        // varietal info must NOT return Colombia as the varietal.
+        $this->assertNull(CoffeeFieldExtractor::extractVarietal('Single Origin - Colombia'));
+        $this->assertNull(CoffeeFieldExtractor::extractVarietal('Sourced from Colombia'));
+    }
+
+    public function test_extract_varietal_still_accepts_colombia_when_unambiguous(): void
+    {
+        // "Colombia" as a bare varietal name with no country-context
+        // separator nearby — accept. This preserves the rare-but-real case.
+        $this->assertSame('Colombia', CoffeeFieldExtractor::extractVarietal('Colombia variety hybrid blend'));
+    }
+
+    public function test_extract_varietal_rejects_java_as_origin(): void
+    {
+        // Java is the canonical origin name; only accept as varietal when
+        // it appears without country/region context.
+        $this->assertNull(CoffeeFieldExtractor::extractVarietal('Premium - Java'));
+        $this->assertNull(CoffeeFieldExtractor::extractVarietal('From Java, Indonesia'));
+    }
+
     public function test_extract_varietal_returns_null_when_unknown(): void
     {
         $this->assertNull(CoffeeFieldExtractor::extractVarietal('A wonderful coffee from Ethiopia'));

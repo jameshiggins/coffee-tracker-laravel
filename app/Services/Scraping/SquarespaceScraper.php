@@ -141,7 +141,9 @@ class SquarespaceScraper implements RoasterScraper
             $imageUrl = $p['assetUrl'] ?? null;
             $productUrl = !empty($p['fullUrl']) ? $origin . $p['fullUrl'] : null;
             $description = (string) ($p['excerpt'] ?? '') ?: (string) ($p['body'] ?? '');
-            $description = trim(strip_tags($description));
+            // Replace tags with space before strip_tags so adjacent block
+            // elements don't merge ("</p><p>" → "OriginProcess").
+            $description = trim(strip_tags(preg_replace('/<[^>]+>/', ' ', $description)));
 
             $out[] = [
                 'name' => $title,

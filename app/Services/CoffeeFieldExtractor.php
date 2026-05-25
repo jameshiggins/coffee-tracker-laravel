@@ -91,25 +91,46 @@ class CoffeeFieldExtractor
 
         // Order matters: longer/more-specific entries first so "Yellow Bourbon"
         // wins over "Bourbon", "Pink Bourbon" wins over "Bourbon", etc.
-        $varietals = [
+        // SPECIFIC VARIETALS — checked first. These are unambiguously
+        // varietal names with no country/location collision risk.
+        $specificVarietals = [
             'Yellow Bourbon', 'Red Bourbon', 'Pink Bourbon',
             'Mundo Novo', 'Yellow Catuai', 'Red Catuai',
             'Pacamara', 'Maragogype', 'Maragogipe',
-            'Castillo', 'Colombia', 'Tabi',
+            'Castillo', 'Tabi',
             'Geisha', 'Gesha',
             'SL28', 'SL34', 'SL-28', 'SL-34',
-            'Kent', 'Java', 'Pache',
-            'Catimor', 'Sarchimor',
+            'Pache', 'Catimor', 'Sarchimor',
             'Bourbon', 'Caturra', 'Catuai', 'Catuaí', 'Typica',
             'Heirloom', 'Ethiopian Heirloom', 'Landrace',
             'Pacas', 'Villa Sarchi', 'Villalobos', 'Mokka',
             'Sidra', 'Wush Wush', 'Laurina',
         ];
+        // AMBIGUOUS VARIETALS — these names are ALSO commonly used as
+        // country/region indicators (Colombia is a country first, Java is
+        // an island first, Kent is a UK county). Only accept these when
+        // there's no country-context marker like ", Colombia" / "-
+        // Colombia" / "from Colombia" / "| Colombia" / "(Colombia)" right
+        // around them. Without this guard, Continuum's "El Obraje Geisha -
+        // Colombia *Special Release*" returns varietal=Colombia instead of
+        // Geisha because Colombia matches before Geisha gets a chance.
+        $ambiguousVarietals = ['Colombia', 'Java', 'Kent'];
 
-        foreach ($varietals as $v) {
+        foreach ($specificVarietals as $v) {
             $pattern = '/(?<![\w\-])' . preg_quote($v, '/') . '(?![\w\-])/iu';
             if (preg_match($pattern, $t)) {
-                // Canonicalize: SL-28 → SL28, Catuaí → Catuai, Gesha → Geisha
+                return self::canonicalVarietal($v);
+            }
+        }
+        foreach ($ambiguousVarietals as $v) {
+            // Must match the bare word AND NOT appear with a country
+            // context separator immediately before. "El Obraje | Colombia"
+            // / "Geisha - Colombia" / "Coffee, Colombia" / "(Colombia)" /
+            // "from Colombia" all disqualify it as a varietal.
+            $countryCtx = '/(?:[-|,]\s*|from\s+|origin[:\s]+|\()' . preg_quote($v, '/') . '(?![\w\-])/iu';
+            if (preg_match($countryCtx, $t)) continue;
+            $pattern = '/(?<![\w\-])' . preg_quote($v, '/') . '(?![\w\-])/iu';
+            if (preg_match($pattern, $t)) {
                 return self::canonicalVarietal($v);
             }
         }

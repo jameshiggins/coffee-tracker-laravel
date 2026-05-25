@@ -163,7 +163,12 @@ class ShopifyScraper implements RoasterScraper
             $out[] = [
                 'name' => $title,
                 'source_id' => isset($p['id']) ? (string) $p['id'] : '',
-                'description' => strip_tags((string) ($p['body_html'] ?? '')),
+                // Replace block tags with a space BEFORE stripping so adjacent
+                // <p>Origin</p><p>Process</p> doesn't merge into "OriginProcess".
+                // RoasterImporter::cleanDescription then collapses the
+                // whitespace and trims; the intermediate space-padding is
+                // what saves the word boundary.
+                'description' => strip_tags(preg_replace('/<[^>]+>/', ' ', (string) ($p['body_html'] ?? ''))),
                 'image_url' => $imageUrl,
                 'product_url' => $productUrl,
                 'is_blend' => Shared::isBlend($title, $productType, $tags),
