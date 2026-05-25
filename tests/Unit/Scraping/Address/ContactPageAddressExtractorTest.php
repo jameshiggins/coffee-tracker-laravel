@@ -4,6 +4,7 @@ namespace Tests\Unit\Scraping\Address;
 
 use App\Services\Scraping\Address\ContactPageAddressExtractor;
 use App\Services\Scraping\Address\ScrapedAddress;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -117,5 +118,64 @@ class ContactPageAddressExtractorTest extends TestCase
         // street/city context, not just take the literal first match.
         $this->assertSame('R3C 0L7', $result->postal_code);
         $this->assertSame('Winnipeg', $result->city);
+    }
+
+    // ── Regression: real-world false positives from prod ──────────────────
+    //
+    // When the cascade ran against 10 Vancouver roasters' contact pages, the
+    // extractor returned garbage "addresses" with address_source=website set
+    // (so the cascade thought it succeeded). Two root causes:
+    //
+    //  (1) The postal regex /[A-Z]\d[A-Z] \d[A-Z]\d/i matched hex color
+    //      codes embedded in CSS (#F3F3F3 → "F3F 3F3" when split by
+    //      whitespace). Real Canada Post codes per spec EXCLUDE D F I O Q U
+    //      from positions 1, 3, 5 — and W Z from position 1 as well — so
+    //      F-starting (or D/W/etc.) codes are never valid postals.
+    //
+    //  (2) The street sanity check ("must contain a digit") accepted CSS
+    //      variable strings like "--color-badge-border: 18, 18, 18" — has
+    //      a digit, but obviously not an address.
+    //
+    // These inputs are minified-but-faithful snippets of what the prod
+    // pages actually served. Each must yield null after the fix.
+
+    /** @return array<string, array{0:string}> */
+    public static function realWorldFalsePositiveCases(): array
+    {
+        return [
+            // F-starting hex codes — never valid Canadian postals per spec.
+            'css hex F3F3F3 from CSS variable' =>
+                ['<style>--color-badge-border: 18, 18, 18; F3F 3F3</style>'],
+            'css hex F6F6F6 in color rule' =>
+                ['<style>.bg { color: F6F 6F6; }</style>'],
+            'css hex F8F8F8 in CSS variable' =>
+                ['<style>--body-color-transparent00: F8F 8F8;</style>'],
+            'css hex F5F5F5 with opacity rule' =>
+                ['<style>opacity: 75%; bg: F5F 5F5;</style>'],
+            // D/W also excluded from position 1.
+            'css hex D5D9D8 (D not valid pos1)' =>
+                ['<style>--ring: D5D 9D8;</style>'],
+            'minified token W3W3W3 (W not valid pos1)' =>
+                ['<div>W3W 3W3 minified</div>'],
+            // C-starting hex IS pos-1-valid per spec, but the surrounding
+            // text is unambiguously JSON, not prose. Existing "no digit in
+            // street" guard already rejects this — defensive coverage.
+            'shopify section JSON with C7C7C7 token' =>
+                ['<script>{"ton_align":"fullBtn","button_cl":"primary","var":"C7C 7C7"}</script>'],
+            // Hardest case: B IS valid pos1, surrounding text is CSS that
+            // DOES contain digits. Requires both fixes (or the CSS-marker
+            // street reject) to catch.
+            'css text near regex-valid postal-shape (B0B 1A1)' =>
+                ['<style>--color-badge-border: 18, 18, 18; B0B 1A1</style>'],
+        ];
+    }
+
+    #[DataProvider('realWorldFalsePositiveCases')]
+    public function test_rejects_real_world_false_positives_from_prod(string $html): void
+    {
+        $this->assertNull(
+            (new ContactPageAddressExtractor())->extract($html),
+            'Expected extractor to reject CSS/JSON masquerading as an address'
+        );
     }
 }

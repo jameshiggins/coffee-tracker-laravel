@@ -20,8 +20,29 @@ namespace App\Services\Scraping\Address;
  */
 class ContactPageAddressExtractor
 {
-    /** Canadian postal code: A1A 1A1 (the space is optional). */
-    private const POSTAL_REGEX = '/\b([A-Z]\d[A-Z])\s?(\d[A-Z]\d)\b/i';
+    /**
+     * Canadian postal code: A1A 1A1 (space optional). Per Canada Post spec:
+     *
+     *   - Position 1 EXCLUDES D F I O Q U (look-alike confusion with digits)
+     *     AND W Z (unassigned territories).
+     *   - Positions 3 and 5 EXCLUDE D F I O Q U.
+     *
+     * Tightening from the lax `[A-Z]` matters: hex color codes like #F3F3F3
+     * read as "F3F 3F3" when split by whitespace and used to wrongly match
+     * the previous "any letter" regex. Real Canadian postals never start
+     * with F (or D, I, O, Q, U, W, Z), so a postal-shape token beginning
+     * with those letters is almost always a hex code or other false alarm.
+     */
+    private const POSTAL_REGEX =
+        '/\b([ABCEGHJKLMNPRSTVXY]\d[ABCEGHJKLMNPRSTVWXYZ])\s?(\d[ABCEGHJKLMNPRSTVWXYZ]\d)\b/i';
+
+    /**
+     * Patterns that a real street address NEVER contains but that scraped
+     * CSS / JSON / minified markup routinely does. Used to reject
+     * extractions like "--color-badge-border: 18, 18" that pass the
+     * "must contain a digit" street sanity check.
+     */
+    private const CSS_OR_JSON_MARKERS = '/[{}:;]|--[\w-]+|var\(|\["|"\]/';
 
     /** Province / territory codes recognized inside a "City, ON" blob. */
     private const PROVINCES = ['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'];
@@ -146,6 +167,13 @@ class ContactPageAddressExtractor
         // mailing-list footer or other content that happens to have a postal
         // code but no real street number.
         if ($street === null || !preg_match('/\d/', $street)) return null;
+
+        // Sanity: reject streets that smell like CSS / JSON / minified
+        // markup rather than prose. Real addresses are "123 Main Street",
+        // never "--color-badge-border: 18, 18". This catches cases where
+        // a regex-valid-shape postal (e.g. B0B 1A1) appears inside an
+        // embedded style block and the surrounding "text" is CSS.
+        if (preg_match(self::CSS_OR_JSON_MARKERS, $street)) return null;
 
         return new ScrapedAddress(
             source: 'website',
