@@ -71,6 +71,122 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->assertSame('https://continuumcoffee.ca/', $r->fresh()->website);
     }
 
+    public function test_url_fix_repoints_agro_from_agroroasters_to_agrocoffee(): void
+    {
+        // agroroasters.com 301-redirects to agrocoffee.com — same URL-drift
+        // pattern. Repointing avoids the cascade re-resolving through a
+        // redirect every run.
+        $r = $this->makeRoaster([
+            'name' => 'Agro Roasters', 'slug' => 'agro-roasters',
+            'website' => 'https://agroroasters.com',
+        ]);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $this->assertSame('https://agrocoffee.com', $r->fresh()->website);
+    }
+
+    // ── D) Manual address overrides ──────────────────────────────────────
+
+    public function test_address_fix_overrides_cascade_with_verified_street_and_coords(): void
+    {
+        // Real-world: AddressScraper Step 2 (contact-page) accepted
+        // postal-code-adjacent CSS / nav junk as the street_address for
+        // these three roasters, and Step 5 (Nominatim) then couldn't make
+        // sense of the junk so the city centroid stayed. Manual override
+        // bypasses the cascade with verified addresses + coords.
+        $proto = $this->makeRoaster([
+            'name' => 'Prototype', 'slug' => 'prototype',
+            'street_address' => 'garbage text the cascade extracted',
+            'postal_code' => 'V6Z 1A1',
+            'latitude' => 49.2827, 'longitude' => -123.1207, // Vancouver centroid
+            'address_source' => 'website',
+        ]);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $proto->refresh();
+        $this->assertSame('883 East Hastings Street', $proto->street_address);
+        $this->assertSame('V6A 1R8', $proto->postal_code);
+        $this->assertSame(49.2813068, (float) $proto->latitude);
+        $this->assertSame(-123.0852617, (float) $proto->longitude);
+        $this->assertSame('manual', $proto->address_source);
+        $this->assertNotNull($proto->address_verified_at);
+    }
+
+    public function test_address_fix_applies_to_all_three_targeted_roasters(): void
+    {
+        $this->makeRoaster([
+            'name' => '49th Parallel', 'slug' => '49th-parallel',
+            'latitude' => 49.2827, 'longitude' => -123.1207,
+            'address_source' => 'website',
+        ]);
+        $this->makeRoaster([
+            'name' => 'Agro Roasters', 'slug' => 'agro-roasters',
+            'latitude' => 49.2827, 'longitude' => -123.1207,
+            'address_source' => 'website',
+        ]);
+        $this->makeRoaster([
+            'name' => 'Prototype', 'slug' => 'prototype',
+            'latitude' => 49.2827, 'longitude' => -123.1207,
+            'address_source' => 'website',
+        ]);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $this->assertSame('2902 Main St', Roaster::where('slug', '49th-parallel')->value('street_address'));
+        $this->assertSame('1359 Powell Street', Roaster::where('slug', 'agro-roasters')->value('street_address'));
+        $this->assertSame('883 East Hastings Street', Roaster::where('slug', 'prototype')->value('street_address'));
+
+        // All three pinned away from the exact city centroid (Agro is
+        // legitimately close — same neighbourhood — but never *exactly*
+        // 49.2827; that value is the fallback signature).
+        foreach (['49th-parallel', 'agro-roasters', 'prototype'] as $slug) {
+            $lat = (float) Roaster::where('slug', $slug)->value('latitude');
+            $this->assertNotSame(49.2827, $lat, "{$slug} still on Vancouver centroid");
+            $this->assertSame('manual', Roaster::where('slug', $slug)->value('address_source'));
+        }
+    }
+
+    public function test_address_fix_is_idempotent(): void
+    {
+        // Already correctly set — the command must NOT re-save.
+        $r = $this->makeRoaster([
+            'name' => 'Prototype', 'slug' => 'prototype',
+            'street_address' => '883 East Hastings Street',
+            'postal_code' => 'V6A 1R8',
+            'latitude' => 49.2813068, 'longitude' => -123.0852617,
+            'address_source' => 'manual',
+            'address_verified_at' => now()->subDays(3),
+        ]);
+        $verifiedAt = $r->address_verified_at;
+        $updatedAt = $r->updated_at;
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $r->refresh();
+        $this->assertEquals($verifiedAt, $r->address_verified_at, 'verified_at must not bump when already correct');
+        $this->assertEquals($updatedAt, $r->updated_at, 'no rewrite when already correct');
+    }
+
+    public function test_address_fix_clears_is_online_only_when_resolving_an_address(): void
+    {
+        // Edge case: if a roaster was previously marked online-only (no
+        // physical address) but we now have a verified street, the
+        // override must un-set the flag — otherwise the map still filters
+        // them out per the is_online_only=true marker rule.
+        $r = $this->makeRoaster([
+            'name' => 'Prototype', 'slug' => 'prototype',
+            'is_online_only' => true,
+        ]);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $r->refresh();
+        $this->assertFalse((bool) $r->is_online_only);
+        $this->assertSame('883 East Hastings Street', $r->street_address);
+    }
+
     public function test_url_fix_is_idempotent_and_only_touches_target_rows(): void
     {
         $hatch = $this->makeRoaster(['name' => 'Hatch Coffee', 'slug' => 'hatch-coffee', 'website' => 'https://hatchcrafted.com']);
