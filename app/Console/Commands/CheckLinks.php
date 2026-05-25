@@ -116,18 +116,33 @@ class CheckLinks extends Command
     }
 
     /**
-     * HEAD-probe a single URL and classify the result. Some sites reject
-     * HEAD with 405 — fall back to a streaming GET and discard the body.
+     * Probe a single URL and classify the result. Uses a Range-limited
+     * GET rather than HEAD because Shopify (and Cloudflare in front of
+     * many roaster sites) rejects HEAD with 403 from data-center IPs,
+     * which would false-flag every Shopify-hosted variant link as
+     * broken when those links work fine for real users. Range: bytes=0-1023
+     * keeps the bandwidth low — the server returns either 200 with a
+     * truncated body or 206 (Partial Content); both count as OK.
      *
-     * @return array{kind: 'ok'|'redirect'|'broken'|'error', status?: int}
+     * Browser-shaped Accept / Accept-Language headers further reduce
+     * the chance of bot-detection 403s. Status 206 is a valid 2xx for
+     * our purposes.
+     *
+     * @return array{kind: 'ok'|'redirect'|'broken'|'error', status?: int, error?: string}
      */
     private function probe(string $url): array
     {
+        $headers = [
+            'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 roastmap-link-checker/1.0',
+            'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language' => 'en-CA,en;q=0.9',
+            'Range' => 'bytes=0-1023',
+        ];
         try {
             $r = Http::timeout(self::TIMEOUT)
-                ->withHeaders(['User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 roastmap-link-checker/1.0'])
+                ->withHeaders($headers)
                 ->withOptions(['allow_redirects' => false])
-                ->head($url);
+                ->get($url);
         } catch (ConnectionException $e) {
             return ['kind' => 'broken', 'error' => 'connection: ' . substr($e->getMessage(), 0, 80)];
         } catch (\Throwable $e) {
@@ -135,23 +150,10 @@ class CheckLinks extends Command
         }
 
         $code = $r->status();
+        // 200 = honored full response (server ignored Range)
+        // 206 = honored Range — Partial Content, still success
         if ($code >= 200 && $code < 300) return ['kind' => 'ok', 'status' => $code];
         if ($code >= 300 && $code < 400) return ['kind' => 'redirect', 'status' => $code];
-        // HEAD-405 fallback: try a streaming GET. Some CDNs / wp-engine
-        // sites are configured to reject HEAD but respond fine to GET.
-        if ($code === 405) {
-            try {
-                $r = Http::timeout(self::TIMEOUT)
-                    ->withHeaders(['User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 roastmap-link-checker/1.0'])
-                    ->withOptions(['allow_redirects' => false, 'stream' => true])
-                    ->get($url);
-                $code = $r->status();
-                if ($code >= 200 && $code < 300) return ['kind' => 'ok', 'status' => $code];
-                if ($code >= 300 && $code < 400) return ['kind' => 'redirect', 'status' => $code];
-            } catch (\Throwable) {
-                return ['kind' => 'broken'];
-            }
-        }
         return ['kind' => 'broken', 'status' => $code];
     }
 }
