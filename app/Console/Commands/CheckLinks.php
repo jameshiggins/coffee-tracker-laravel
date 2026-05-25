@@ -8,20 +8,35 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
 /**
- * Walks every active roaster + its non-removed coffees and HEAD-probes
- * each outbound URL (roaster.website, roaster.instagram, coffee.product_url,
+ * Walks every active roaster + its non-removed coffees and probes each
+ * outbound URL (roaster.website, roaster.instagram, coffee.product_url,
  * variant.purchase_link). Reports an OK / REDIRECT / BROKEN breakdown plus
  * the first N broken URLs so we can spot link rot before users do.
  *
  *   php artisan roasters:check-links
  *   php artisan roasters:check-links --only=oso-negro-coffee
+ *   php artisan roasters:check-links --max-broken=200
  *
  * Categorization:
  *   2xx                  → OK
  *   3xx (Location: …)    → REDIRECT (visible target — usually still works)
  *   4xx / 5xx / network  → BROKEN
  *
+ * Probe shape: Range: bytes=0-1023 GET with a Safari-shaped User-Agent
+ * and browser-like Accept headers. HEAD would be faster but Shopify
+ * stores behind Cloudflare reject HEAD with 403 from data-center IPs,
+ * and many CDNs reject unknown UAs the same way.
+ *
  * Soft-removed coffees, inactive roasters, and null URLs are skipped.
+ *
+ * KNOWN LIMITATION — Shopify bot detection from data-center IPs:
+ *   Shopify stores fronted by Cloudflare return 403 to many Fly-IP
+ *   requests even with the browser-like shape above. The .json
+ *   fallback below recovers a lot of these (the JSON product API is
+ *   rate-limited differently), but at scale Shopify will eventually
+ *   throttle Fly-IP traffic too. A run where ~50%+ of BROKEN are
+ *   Shopify 403s should be read as "checker rate-limited" rather
+ *   than "directory has 50% link rot."
  */
 class CheckLinks extends Command
 {
