@@ -220,6 +220,51 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->assertSame('Ontario', $reunion->region);
     }
 
+    // ── E) Chrome-only shipping_notes cleanup ────────────────────────────
+
+    public function test_clears_shipping_notes_containing_chrome_markers(): void
+    {
+        // Live audit found 35 rows with notes like "Shipping policy –
+        // Rosso Coffee Skip to content Spend $75." — chrome that the old
+        // extractor surfaced as the policy. Step E NULLs them so the next
+        // import-all run can repopulate with the improved extractor.
+        $a = $this->makeRoaster([
+            'name' => 'Chrome A', 'slug' => 'chrome-a',
+            'shipping_notes' => 'Shipping policy – Roaster Skip to content Spend $75',
+        ]);
+        $b = $this->makeRoaster([
+            'name' => 'Chrome B', 'slug' => 'chrome-b',
+            'shipping_notes' => "Politique d'expédition Aller au contenu Facebook Instagram",
+        ]);
+        $clean = $this->makeRoaster([
+            'name' => 'Clean Notes', 'slug' => 'clean-notes',
+            'shipping_notes' => 'Free shipping across Canada on orders over $75.',
+        ]);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $this->assertNull($a->fresh()->shipping_notes, 'chrome marker "Skip to content" must be NULL\'d');
+        $this->assertNull($b->fresh()->shipping_notes, 'French chrome marker "Aller au contenu" must be NULL\'d');
+        $this->assertSame('Free shipping across Canada on orders over $75.', $clean->fresh()->shipping_notes,
+            'real policy text must survive');
+    }
+
+    public function test_chrome_shipping_notes_cleanup_is_idempotent(): void
+    {
+        $r = $this->makeRoaster([
+            'name' => 'Clean', 'slug' => 'clean',
+            'shipping_notes' => 'Free shipping on orders over $50.',
+        ]);
+        $updatedAt = $r->updated_at;
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $r->refresh();
+        $this->assertSame('Free shipping on orders over $50.', $r->shipping_notes);
+        $this->assertEquals($updatedAt, $r->updated_at, 'clean row must not be rewritten');
+    }
+
     public function test_address_fix_is_idempotent(): void
     {
         // Already correctly set — the command must NOT re-save.

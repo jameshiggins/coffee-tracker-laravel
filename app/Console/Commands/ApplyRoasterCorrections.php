@@ -314,6 +314,7 @@ class ApplyRoasterCorrections extends Command
         $changed += $this->applyQuietlyCityFix($dry);
         $changed += $this->ensureRequiredRoasters($dry);
         $changed += $this->applyAddressFixes($dry);
+        $changed += $this->clearChromeShippingNotes($dry);
 
         $this->newLine();
         $this->info($dry
@@ -504,6 +505,49 @@ class ApplyRoasterCorrections extends Command
         }
 
         return $n;
+    }
+
+    /**
+     * E) Clear shipping_notes that contain scraped page-chrome (nav, footer,
+     *    cookie banners). The old shipping-policy extractor took the first
+     *    sentence containing "shipping", which on most templates matched the
+     *    duplicated page title before any real content. Live audit found 35
+     *    roasters with chrome-only notes. NULL'ing them lets the NEXT
+     *    roasters:import-all run repopulate with the improved extractor.
+     *
+     * Idempotent — re-running won't touch rows whose notes are already
+     * either null or chrome-free.
+     */
+    private function clearChromeShippingNotes(bool $dry): int
+    {
+        $this->line('E) Clear chrome-only shipping_notes');
+        $chromeMarkers = [
+            'Skip to content', 'Sign in', 'Sign Up', 'Passer au contenu',
+            'Aller au contenu', 'Ignorer et passer', 'Facebook Instagram',
+            'Copyright', 'All Rights Reserved', 'Powered by',
+            'Politique d\'expédition', 'Politique d’expédition',
+            'Politique de confidentialité',
+        ];
+        $query = Roaster::query()->whereNotNull('shipping_notes');
+        $query->where(function ($q) use ($chromeMarkers) {
+            foreach ($chromeMarkers as $marker) {
+                $q->orWhere('shipping_notes', 'like', '%' . $marker . '%');
+            }
+        });
+
+        $affected = $query->get(['id', 'name']);
+        if ($affected->isEmpty()) {
+            $this->line('   = no chrome-only shipping_notes found');
+            return 0;
+        }
+
+        foreach ($affected as $r) {
+            $this->line(sprintf('   %s %s: clearing chrome shipping_notes', $dry ? '~' : '✓', $r->name));
+        }
+        if (!$dry) {
+            Roaster::whereIn('id', $affected->pluck('id'))->update(['shipping_notes' => null]);
+        }
+        return $affected->count();
     }
 
     /**
