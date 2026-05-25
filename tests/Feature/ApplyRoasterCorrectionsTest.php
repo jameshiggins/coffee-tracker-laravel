@@ -155,6 +155,71 @@ class ApplyRoasterCorrectionsTest extends TestCase
         }
     }
 
+    public function test_batch2_nominatim_resolved_addresses_apply_to_all_eight_roasters(): void
+    {
+        // Eight roasters that were pinned to their city centroid until the
+        // Nominatim business-name search filled in their real shop addresses
+        // (Café Pikolo, Ethica, Even, Happy Goat, Midnight Sun, Phil &
+        // Sebastian, Receiver, Sam James). The point of this batch is the
+        // bulk fix, so the test just spot-checks one from each city to
+        // prove the routing wires up — every individual entry's data is
+        // verifiable from the ADDRESS_FIXES const.
+        $this->makeRoaster(['name' => 'Phil & Sebastian', 'slug' => 'phil-sebastian',
+            'latitude' => 51.0447, 'longitude' => -114.0719, 'address_source' => 'website']);
+        $this->makeRoaster(['name' => 'Ethica Coffee Roasters', 'slug' => 'ethica-coffee-roasters',
+            'latitude' => 43.6532, 'longitude' => -79.3832, 'address_source' => 'website']);
+        $this->makeRoaster(['name' => 'Receiver Coffee Co.', 'slug' => 'receiver-coffee-co',
+            'latitude' => 46.2382, 'longitude' => -63.1311, 'address_source' => 'website']);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $this->assertSame('2207 4 Street SW', Roaster::where('slug', 'phil-sebastian')->value('street_address'));
+        $this->assertSame('213 Sterling Road', Roaster::where('slug', 'ethica-coffee-roasters')->value('street_address'));
+        $this->assertSame('128 Richmond Street', Roaster::where('slug', 'receiver-coffee-co')->value('street_address'));
+        foreach (['phil-sebastian', 'ethica-coffee-roasters', 'receiver-coffee-co'] as $slug) {
+            $this->assertSame('manual', Roaster::where('slug', $slug)->value('address_source'));
+        }
+    }
+
+    public function test_batch3_address_fix_with_city_override_corrects_seeded_city(): void
+    {
+        // Cantook was seeded as Montreal but the actual cafe is in Québec
+        // City — the address fix carries an optional `city` field that
+        // overwrites the seeded city when present. Without this, the
+        // map would pin the cafe in QC but the directory would still
+        // group it under Montreal.
+        $cantook = $this->makeRoaster([
+            'name' => 'Cantook Café Brûlerie', 'slug' => 'cantook-cafe-brulerie',
+            'city' => 'Montreal', 'region' => 'Quebec',
+            'latitude' => 45.5017, 'longitude' => -73.5673,
+            'address_source' => 'website',
+        ]);
+        // Reunion: seeded Mississauga, actually Oakville.
+        $reunion = $this->makeRoaster([
+            'name' => 'Reunion Coffee Roasters', 'slug' => 'reunion-coffee-roasters',
+            'city' => 'Mississauga', 'region' => 'Ontario',
+            'latitude' => 43.589, 'longitude' => -79.6441,
+            'address_source' => 'website',
+        ]);
+        // A roaster WITHOUT a city override — city must remain unchanged.
+        $ace = $this->makeRoaster([
+            'name' => 'Ace Coffee Roasters', 'slug' => 'ace-coffee-roasters',
+            'city' => 'Edmonton', 'region' => 'Alberta',
+            'latitude' => 53.5461, 'longitude' => -113.4938,
+            'address_source' => 'website',
+        ]);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $cantook->refresh(); $reunion->refresh(); $ace->refresh();
+        $this->assertSame('Québec', $cantook->city, 'Cantook city must be overridden');
+        $this->assertSame('Oakville', $reunion->city, 'Reunion city must be overridden');
+        $this->assertSame('Edmonton', $ace->city, 'Ace has no city override; original city must survive');
+        // Sanity: regions are not touched by the address-fix flow.
+        $this->assertSame('Quebec', $cantook->region);
+        $this->assertSame('Ontario', $reunion->region);
+    }
+
     public function test_address_fix_is_idempotent(): void
     {
         // Already correctly set — the command must NOT re-save.

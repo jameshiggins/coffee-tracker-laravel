@@ -58,12 +58,18 @@ class ApplyRoasterCorrections extends Command
      *    address (street + postal) plus Nominatim-resolved coordinates,
      *    stamped source='manual' so the cascade leaves them alone forever.
      *
+     * Optional fields:
+     *   - city: only present when the seeded city was wrong (e.g. Cantook
+     *     filed under Montreal but the cafe is in Québec City). The city
+     *     overwrite only fires when provided AND differs from current.
+     *
      * @var array<int, array{
      *     match: array<int, string>,
      *     street_address: string,
      *     postal_code: string,
      *     latitude: float,
      *     longitude: float,
+     *     city?: string,
      * }>
      */
     private const ADDRESS_FIXES = [
@@ -94,6 +100,147 @@ class ApplyRoasterCorrections extends Command
             'postal_code' => 'V6B 2J4',
             'latitude' => 49.2821010,
             'longitude' => -123.1045130,
+        ],
+        // ── batch 2: Nominatim business-name resolution sweep ──
+        // Resolved via OSM name+city search after the first manual pass
+        // exposed how many roasters the cascade had pinned to their city
+        // centroid. Each one is a verified business hit (Nominatim
+        // returned a record with house_number + road + postal).
+        [
+            'match' => ['Café Pikolo Espresso Bar', 'Cafe Pikolo Espresso Bar'],
+            'street_address' => '1635 Rue Clark',
+            'postal_code' => 'H2X 2R4',
+            'latitude' => 45.5107888,
+            'longitude' => -73.5668235,
+        ],
+        [
+            'match' => ['Ethica', 'Ethica Coffee Roasters'],
+            'street_address' => '213 Sterling Road',
+            'postal_code' => 'M6R 2B2',
+            'latitude' => 43.6553122,
+            'longitude' => -79.4453495,
+        ],
+        [
+            'match' => ['Even Coffee'],
+            'street_address' => '267 Rue Saint-Zotique Ouest',
+            'postal_code' => 'H2V 4M1',
+            'latitude' => 45.5289656,
+            'longitude' => -73.6161397,
+        ],
+        [
+            'match' => ['Happy Goat', 'Happy Goat Coffee'],
+            'street_address' => '145 Main Street',
+            'postal_code' => 'K1S 5V9',
+            'latitude' => 45.4100042,
+            'longitude' => -75.6782471,
+        ],
+        [
+            'match' => ['Midnight Sun', 'Midnight Sun Coffee Roasters'],
+            'street_address' => '21 Waterfront Place',
+            'postal_code' => 'Y1A 1C8',
+            'latitude' => 60.7307977,
+            'longitude' => -135.0640791,
+        ],
+        [
+            'match' => ['Phil & Sebastian', 'Phil and Sebastian'],
+            'street_address' => '2207 4 Street SW',
+            'postal_code' => 'T2S 1X1',
+            'latitude' => 51.0330036,
+            'longitude' => -114.0717506,
+        ],
+        [
+            'match' => ['Receiver Coffee', 'Receiver Coffee Co.'],
+            'street_address' => '128 Richmond Street',
+            'postal_code' => 'C1A 8G8',
+            'latitude' => 46.2338344,
+            'longitude' => -63.1266042,
+        ],
+        [
+            'match' => ['Sam James', 'Sam James Coffee Bar'],
+            'street_address' => '297 Harbord Street',
+            'postal_code' => 'M6G 1G7',
+            'latitude' => 43.6602502,
+            'longitude' => -79.4154118,
+        ],
+        // ── batch 3: contact-page WebFetch resolution sweep ──
+        // Roasters Nominatim's business-name search missed; each address
+        // is from the roaster's own contact/about page, then geocoded.
+        // Some have a `city` override because the seeder had the wrong
+        // metro (e.g. Cantook stored as Montreal — actually Québec City).
+        [
+            'match' => ['Ace Coffee Roasters', 'Ace Coffee'],
+            'street_address' => '10055 80 Avenue NW',
+            'postal_code' => 'T6E 1T4',
+            'latitude' => 53.5158742,
+            'longitude' => -113.4907192,
+        ],
+        [
+            'match' => ['Café Myriade', 'Cafe Myriade', 'Myriade'],
+            'street_address' => '1432 Rue Mackay',
+            'postal_code' => 'H3G 2H7',
+            'latitude' => 45.4960734,
+            'longitude' => -73.5778526,
+        ],
+        [
+            'match' => ['Cantook Café Brûlerie', 'Cantook Cafe Brulerie', 'Cantook'],
+            'street_address' => '575 Rue Saint-Jean',
+            'postal_code' => 'G1R 1P5',
+            'latitude' => 46.8099065,
+            'longitude' => -71.2200470,
+            'city' => 'Québec',
+        ],
+        [
+            'match' => ['De Mello Coffee', 'De Mello'],
+            'street_address' => '2489 Yonge Street',
+            'postal_code' => 'M4P 2H6',
+            'latitude' => 43.7119144,
+            'longitude' => -79.3992588,
+        ],
+        [
+            'match' => ['Drumroaster', 'Drumroaster Coffee'],
+            'street_address' => '1400 Cowichan Bay Road',
+            'postal_code' => 'V8H 0A6',
+            'latitude' => 48.7096561,
+            'longitude' => -123.6084745,
+            'city' => 'Cobble Hill',
+        ],
+        [
+            'match' => ['Equator', 'Equator Coffee Roasters'],
+            'street_address' => '451 Ottawa Street',
+            'postal_code' => 'K0A 1A0',
+            'latitude' => 45.2349666,
+            'longitude' => -76.1812299,
+            'city' => 'Almonte',
+        ],
+        [
+            'match' => ['House of Funk', 'Funk Coffee'],
+            'street_address' => '1025 Dunsmuir St',
+            'postal_code' => 'V7X 1M5',
+            'latitude' => 49.2863433,
+            'longitude' => -123.1205250,
+        ],
+        [
+            'match' => ['Oso Negro Coffee', 'Oso Negro'],
+            'street_address' => '604 Ward Street',
+            'postal_code' => 'V1L 7B1',
+            'latitude' => 49.4908980,
+            'longitude' => -117.2932860,
+        ],
+        [
+            'match' => ['Reunion Coffee Roasters', 'Reunion'],
+            'street_address' => '2421 Royal Windsor Drive',
+            'postal_code' => 'L6J 7X6',
+            'latitude' => 43.4934513,
+            'longitude' => -79.6491799,
+            'city' => 'Oakville',
+        ],
+        [
+            'match' => ['Salt Spring Coffee', 'Salt Spring'],
+            'street_address' => '3551 Viking Way',
+            'postal_code' => 'V6V 1W1',
+            'latitude' => 49.1892856,
+            'longitude' => -123.0742950,
+            'city' => 'Richmond',
         ],
     ];
 
@@ -276,32 +423,39 @@ class ApplyRoasterCorrections extends Command
             }
 
             // Compare every field we'd write — if all already match AND the
-            // source is already 'manual' AND is_online_only is false, the
-            // override is a no-op (idempotent).
+            // source is already 'manual' AND is_online_only is false (and
+            // city override either absent or matches), the override is a
+            // no-op (idempotent).
+            $cityMatches = !isset($fix['city']) || $roaster->city === $fix['city'];
             $alreadyCorrect =
                 $roaster->street_address === $fix['street_address']
                 && $roaster->postal_code === $fix['postal_code']
                 && (float) $roaster->latitude === (float) $fix['latitude']
                 && (float) $roaster->longitude === (float) $fix['longitude']
                 && $roaster->address_source === 'manual'
-                && !$roaster->is_online_only;
+                && !$roaster->is_online_only
+                && $cityMatches;
 
             if ($alreadyCorrect) {
                 $this->line(sprintf('   = ok (already correct): %s', $roaster->name));
                 continue;
             }
 
+            $cityNote = isset($fix['city']) && $roaster->city !== $fix['city']
+                ? sprintf(' [city: %s → %s]', $roaster->city, $fix['city'])
+                : '';
             $this->line(sprintf(
-                '   %s %s: %s — (%.4f, %.4f)',
+                '   %s %s: %s — (%.4f, %.4f)%s',
                 $dry ? '~' : '✓',
                 $roaster->name,
                 $fix['street_address'],
                 $fix['latitude'],
-                $fix['longitude']
+                $fix['longitude'],
+                $cityNote
             ));
 
             if (!$dry) {
-                $roaster->fill([
+                $payload = [
                     'street_address' => $fix['street_address'],
                     'postal_code' => $fix['postal_code'],
                     'latitude' => $fix['latitude'],
@@ -309,7 +463,11 @@ class ApplyRoasterCorrections extends Command
                     'address_source' => 'manual',
                     'address_verified_at' => now(),
                     'is_online_only' => false,
-                ])->save();
+                ];
+                if (isset($fix['city'])) {
+                    $payload['city'] = $fix['city'];
+                }
+                $roaster->fill($payload)->save();
             }
             $n++;
         }
