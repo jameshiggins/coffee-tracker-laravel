@@ -125,7 +125,7 @@ class CheckLinks extends Command
     {
         try {
             $r = Http::timeout(self::TIMEOUT)
-                ->withHeaders(['User-Agent' => 'roastmap-link-checker/1.0'])
+                ->withHeaders(['User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 roastmap-link-checker/1.0'])
                 ->withOptions(['allow_redirects' => false])
                 ->head($url);
         } catch (ConnectionException $e) {
@@ -142,7 +142,7 @@ class CheckLinks extends Command
         if ($code === 405) {
             try {
                 $r = Http::timeout(self::TIMEOUT)
-                    ->withHeaders(['User-Agent' => 'roastmap-link-checker/1.0'])
+                    ->withHeaders(['User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 roastmap-link-checker/1.0'])
                     ->withOptions(['allow_redirects' => false, 'stream' => true])
                     ->get($url);
                 $code = $r->status();
