@@ -132,11 +132,15 @@ class ImportSoftRemoveTest extends TestCase
     {
         $importer = $this->importer();
 
+        // We use a different second coffee (102) on the "disappears" run so
+        // the fetch is non-empty — that bypasses the empty-fetch safety
+        // check and lets the soft-remove logic actually fire on coffee 101.
+        // Then the third run brings 101 back and it should un-remove.
         Http::fakeSequence()
             ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // probe
             ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // fetch
-            ->push($this->shopifyResponse([]), 200)                             // disappears
-            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200); // comes back
+            ->push($this->shopifyResponse([$this->product(102, 'Other')]), 200) // 101 absent (102 takes its place) → 101 soft-removes
+            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200); // 101 returns
 
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
@@ -184,6 +188,40 @@ class ImportSoftRemoveTest extends TestCase
 
         $stale->refresh();
         $this->assertNotNull($stale->removed_at, 'legacy NULL-source_id coffee should be soft-removed when absent from reimport');
+    }
+
+    public function test_zero_coffee_import_does_not_wipe_existing_catalog(): void
+    {
+        // REGRESSION: my soft-remove refactor (acd17ce predecessor) tracks
+        // touchedIds across ALL existing coffees and soft-removes anything
+        // not touched. If a re-import returns 0 coffees — common when a
+        // scraper transiently fails, the site rate-limits, or a platform
+        // shape shifts mid-day — that means $touchedIds is empty and ALL
+        // existing coffees get soft-removed in one sweep. A scraper hiccup
+        // shouldn't wipe a roaster's entire catalog.
+        $importer = $this->importer();
+
+        // Seed with 2 coffees from a healthy first import.
+        Http::fakeSequence()
+            ->push($this->shopifyResponse([
+                $this->product(101, 'Yirg'),
+                $this->product(102, 'House Blend'),
+            ]), 200)
+            ->push($this->shopifyResponse([
+                $this->product(101, 'Yirg'),
+                $this->product(102, 'House Blend'),
+            ]), 200)
+            // Second import: scraper returns empty — site rate-limited
+            // or transient platform-shape hiccup. Must NOT wipe the catalog.
+            ->push($this->shopifyResponse([]), 200);
+
+        $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
+        $this->assertSame(2, Coffee::available()->count(), 'first import seeds 2 coffees');
+
+        $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
+
+        $this->assertSame(2, Coffee::available()->count(),
+            'empty import must NOT soft-remove the existing catalog');
     }
 
     public function test_coffee_name_html_entities_are_decoded_on_import(): void

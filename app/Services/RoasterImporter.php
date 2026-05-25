@@ -180,6 +180,17 @@ class RoasterImporter
         $existing = $roaster->coffees()->get()->keyBy('id');
         $touchedIds = [];
 
+        // SAFETY: if the scraper returned nothing AND the roaster already has
+        // a catalog, do nothing. An empty fetch is almost always a transient
+        // failure (DNS blip, rate limit, platform-shape shift, password-
+        // protected suddenly) and we should NOT wipe an entire roaster's
+        // catalog over one bad poll. The importer's `last_import_status`
+        // already records 'empty' so the admin surface flags this for
+        // investigation; meanwhile users keep seeing the inventory.
+        if (empty($coffees) && $existing->isNotEmpty()) {
+            return;
+        }
+
         foreach ($coffees as $c) {
             $sourceId = (string) ($c['source_id'] ?? '');
             $name = (string) ($c['name'] ?? '');
