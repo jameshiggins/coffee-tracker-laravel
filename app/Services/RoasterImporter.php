@@ -159,11 +159,15 @@ class RoasterImporter
      * Q1+Q2 invariant: user tastings/wishlists (FK on coffee_id) must survive
      * a re-import. So:
      *  - Match each scraped coffee to an existing row by (roaster_id, source_id).
+     *  - If that misses, fall back to a case-insensitive (roaster_id, name)
+     *    match against legacy rows whose source_id is NULL (older code paths
+     *    didn't populate it). Re-binding lets the fresh import backfill
+     *    source_id onto the existing row instead of creating a duplicate.
      *  - If found: update it in place; clear removed_at if previously soft-removed.
      *  - If not found: create a new row.
-     *  - Coffees that existed before this run but didn't appear in the fetch:
-     *    set removed_at to the current timestamp (soft-remove). The row stays;
-     *    foreign keys hold.
+     *  - Coffees that existed before this run but didn't appear in the fetch
+     *    (matched by neither source_id nor name): set removed_at to the
+     *    current timestamp (soft-remove). The row stays; foreign keys hold.
      *
      * Variants don't have user FKs (tastings link to the coffee, not the
      * variant), so they keep the simpler delete-and-recreate per coffee.
@@ -171,26 +175,41 @@ class RoasterImporter
     private function syncCoffees(Roaster $roaster, array $coffees): void
     {
         $now = Carbon::now();
-        $existingBySourceId = $roaster->coffees()->whereNotNull('source_id')->get()->keyBy('source_id');
-        $seenSourceIds = [];
+        // ALL existing coffees (including NULL source_id) keyed by id so we
+        // can track which rows the run touched and soft-remove the rest.
+        $existing = $roaster->coffees()->get()->keyBy('id');
+        $touchedIds = [];
 
         foreach ($coffees as $c) {
             $sourceId = (string) ($c['source_id'] ?? '');
-            if ($sourceId === '') {
-                // Scraper didn't expose a stable id (rare — generic-html with no
-                // schema URL). Fall back to creating a fresh row each time;
-                // matches old behaviour for that edge case.
-                $this->upsertCoffee($roaster, $c, null);
-                continue;
+            $name = (string) ($c['name'] ?? '');
+
+            // 1) source_id match (fast path, stable across renames).
+            $row = $sourceId !== ''
+                ? $existing->first(fn ($r) => (string) $r->source_id === $sourceId)
+                : null;
+
+            // 2) Name fallback for legacy NULL-source_id rows. Case-insensitive
+            //    so import-time title-case fixups don't fork the row. Skip
+            //    rows already claimed in this run by another scraped coffee.
+            if (!$row && $name !== '') {
+                $row = $existing->first(fn ($r) =>
+                    $r->source_id === null
+                    && !isset($touchedIds[$r->id])
+                    && strcasecmp((string) $r->name, $name) === 0
+                );
             }
-            $seenSourceIds[$sourceId] = true;
-            $existing = $existingBySourceId->get($sourceId);
-            $this->upsertCoffee($roaster, $c, $existing);
+
+            $upserted = $this->upsertCoffee($roaster, $c, $row);
+            $touchedIds[$upserted->id] = true;
         }
 
-        // Soft-remove any previously-imported coffee not seen in this run.
-        $missing = $existingBySourceId->reject(fn ($coffee, $sid) => isset($seenSourceIds[$sid]));
-        foreach ($missing as $coffee) {
+        // Soft-remove anything that existed before this run but wasn't
+        // touched — covers both vanished source_id rows AND legacy
+        // NULL-source_id rows whose name no longer matches any scraped
+        // product (the Costa Rican Tarrazú class of stale entry).
+        foreach ($existing as $coffee) {
+            if (isset($touchedIds[$coffee->id])) continue;
             if ($coffee->removed_at === null) {
                 $coffee->forceFill(['removed_at' => $now])->save();
             }

@@ -316,6 +316,40 @@ class SharedTest extends TestCase
         $this->assertFalse(Shared::looksLikeCoffee('Africa-Print Tee', 'Apparel', ['Africa']));
     }
 
+    // ── looksLikeCoffee: "chocolate" as flavor descriptor vs product ──────
+    //
+    // The bare 'chocolates?' title-level reject was too broad — it nuked
+    // real coffees whose tasting-note vocabulary names them after the
+    // flavour. Oso Negro's "Chocolate Cake" is the canonical case; other
+    // roasters have "Chocolate Cherry Bomb", "Cookies & Chocolate", etc.
+    // The replacement must:
+    //   - Pass coffees with "chocolate" used as a flavor descriptor
+    //   - Still reject obvious chocolate products (bars, truffles,
+    //     drinking chocolate, hot cocoa)
+
+    public function test_looks_like_coffee_accepts_chocolate_as_flavor_descriptor(): void
+    {
+        // Real Oso Negro coffee — fails today, must pass post-fix.
+        $this->assertTrue(Shared::looksLikeCoffee('Chocolate Cake', '', ['Africa', 'Americas', 'Dark']));
+        // Other flavor-descriptor patterns seen on roaster sites.
+        $this->assertTrue(Shared::looksLikeCoffee('Chocolate Cherry Bomb', 'Coffee', []));
+        $this->assertTrue(Shared::looksLikeCoffee('Cookies & Chocolate Blend', 'Coffee', []));
+        $this->assertTrue(Shared::looksLikeCoffee('Chocolate Hazelnut Espresso', 'Coffee', []));
+    }
+
+    public function test_looks_like_coffee_still_rejects_actual_chocolate_products(): void
+    {
+        // Bars / truffles / discs — actual chocolate confectionery.
+        $this->assertFalse(Shared::looksLikeCoffee('Oso Negro Coffee Chocolate Bar', 'Chocolate', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Dark Chocolate Truffles', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('70% Chocolate Squares', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Milk Chocolate Buttons', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Chocolate Medallions', '', []));
+        // Drinking chocolate / hot cocoa — beverage powders.
+        $this->assertFalse(Shared::looksLikeCoffee('Drinking Chocolate', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Hot Cocoa Mix', '', []));
+    }
+
     // ── sanitizeUtf8 ──────────────────────────────────────────────────────
 
     public function test_sanitizeUtf8_preserves_clean_utf8(): void

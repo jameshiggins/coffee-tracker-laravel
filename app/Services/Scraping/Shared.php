@@ -278,8 +278,14 @@ final class Shared
         // Vessels, gear, brewing kit, apparel. All patterns allow plurals
         // (Mugs, Filters) via `s?` and word boundaries to avoid e.g. "Mug"
         // matching inside an unrelated word.
+        // NOTE: bare 'chocolates?' was removed from this list because it
+        // false-rejected real coffees named for the flavor descriptor
+        // (Oso Negro "Chocolate Cake", "Chocolate Cherry Bomb", etc.). The
+        // stricter chocolate-product patterns below catch actual chocolate
+        // confectionery; product_type='Chocolate' is still hard-rejected
+        // via the excludeTypes loop earlier.
         $gearPattern = '/\b(' . implode('|', [
-            'chocolates?', 'cacao', 'teas?', 'matcha', 'yerba\s+mate', 'rooibos',
+            'cacao', 'teas?', 'matcha', 'yerba\s+mate', 'rooibos',
             'tisane', 'herbal\s+tea', 'chai', 'kombucha', 'soda', 'juices?',
             'merchs?', 't-shirts?', 'hoodies?',
             'mugs?', 'tumblers?', 'bottles?', 'grinders?', 'kettles?', 'brewers?',
@@ -317,7 +323,21 @@ final class Shared
         // Hot cocoa / drinking chocolate — beverage powders that aren't
         // coffee. Bare "cocoa" stays allowed because it's a common flavor
         // descriptor in real blend names ("Cocoa Mocha Nut", etc.).
-        if (preg_match('/\b(hot\s+cocoa|cocoa\s+(?:powder|mix|blend\s+\(drink)|drinking\s+chocolate)\b/', $titleLower)) return false;
+        if (preg_match('/\b(hot\s+cocoa|hot\s+chocolate|cocoa\s+(?:powder|mix|blend\s+\(drink)|drinking\s+chocolate)\b/', $titleLower)) return false;
+
+        // Chocolate CONFECTIONERY — bars, truffles, squares, etc. Matches
+        // only "chocolate <product-noun>" so that "Chocolate Cake" / "Choc
+        // Cherry Bomb" / "Cookies & Chocolate" coffees pass through as
+        // flavor descriptors. The hot-cocoa pattern above + the productType
+        // 'chocolate' excludeType handle the remaining real chocolate cases.
+        $chocolateProductNouns = 'bars?|truffles?|squares?|tablets?|buttons?|drops?|medallions?|bonbons?|wafers?|chips?|discs?|nibs?';
+        if (preg_match('/\bchocolate\s+(?:' . $chocolateProductNouns . ')\b/', $titleLower)) return false;
+        // Reverse order: "70% Chocolate Squares" — already caught above.
+        // "Dark/Milk/White Chocolate <noun>": catches the prefixed
+        // confectionery shape too. ("Dark Chocolate Truffles", "Milk
+        // Chocolate Buttons"). Allow "Dark Chocolate" alone-in-name to
+        // pass for flavor descriptors like "Dark Chocolate Espresso".
+        if (preg_match('/\b(?:dark|milk|white|raw)\s+chocolate\s+(?:' . $chocolateProductNouns . ')\b/', $titleLower)) return false;
 
         // Raw / green / unroasted coffee — for home-roasters, not the
         // ready-to-brew directory.

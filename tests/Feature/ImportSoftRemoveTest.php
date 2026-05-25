@@ -157,4 +157,61 @@ class ImportSoftRemoveTest extends TestCase
         $this->assertContains($live->id, $available);
         $this->assertNotContains($gone->id, $available);
     }
+
+    public function test_legacy_coffee_with_null_source_id_gets_soft_removed_when_absent_from_reimport(): void
+    {
+        // Real-world: Oso Negro had a pre-existing "Costa Rican Tarrazú"
+        // row imported under a previous code path that didn't populate
+        // source_id. The current import returns 17 coffees, none of which
+        // are Costa Rican Tarrazú — but because the existing row has
+        // source_id=NULL it sidestepped the soft-remove sweep and lingered
+        // on the directory indefinitely.
+        $roaster = Roaster::create([
+            'name' => 'Example', 'slug' => 'example', 'city' => 'Vancouver',
+            'website' => 'https://example.com', 'is_active' => true,
+        ]);
+        $stale = $roaster->coffees()->create([
+            'name' => 'Costa Rican Tarrazú',
+            'origin' => 'Costa Rica',
+            // source_id deliberately null — legacy import shape.
+        ]);
+
+        Http::fakeSequence()
+            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // probe
+            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200); // fetch
+
+        $this->importer()->import('https://example.com', name: 'Example', city: 'Vancouver');
+
+        $stale->refresh();
+        $this->assertNotNull($stale->removed_at, 'legacy NULL-source_id coffee should be soft-removed when absent from reimport');
+    }
+
+    public function test_legacy_null_source_id_coffee_is_matched_by_name_and_not_duplicated(): void
+    {
+        // If a current import happens to include a coffee whose name
+        // matches a pre-existing NULL-source_id row, the importer must
+        // re-bind to it (not duplicate). The newly-imported row gets the
+        // proper source_id so future runs use the cheap source_id path.
+        $roaster = Roaster::create([
+            'name' => 'Example', 'slug' => 'example', 'city' => 'Vancouver',
+            'website' => 'https://example.com', 'is_active' => true,
+        ]);
+        $legacy = $roaster->coffees()->create([
+            'name' => 'Ethiopia Yirg', 'origin' => 'Ethiopia',
+        ]);
+        $legacyId = $legacy->id;
+
+        Http::fakeSequence()
+            ->push($this->shopifyResponse([$this->product(101, 'Ethiopia Yirg')]), 200)
+            ->push($this->shopifyResponse([$this->product(101, 'Ethiopia Yirg')]), 200);
+
+        $this->importer()->import('https://example.com', name: 'Example', city: 'Vancouver');
+
+        $this->assertSame(1, Coffee::where('roaster_id', $roaster->id)->count(),
+            'name match must re-bind to legacy row, not create a duplicate');
+        $rebound = Coffee::where('roaster_id', $roaster->id)->first();
+        $this->assertSame($legacyId, $rebound->id, 'must reuse the existing row id');
+        $this->assertSame('101', $rebound->source_id, 'should backfill source_id from the fresh import');
+        $this->assertNull($rebound->removed_at, 'matched row must not be soft-removed');
+    }
 }
