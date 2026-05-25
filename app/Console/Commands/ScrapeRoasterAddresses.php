@@ -117,6 +117,15 @@ class ScrapeRoasterAddresses extends Command
         $r->fill([
             'is_online_only' => true,
             'address_verified_at' => now(),
+            // is_online_only=true means "no physical address resolved" — the
+            // address fields MUST be NULL'd so the UI doesn't continue to
+            // render stale data from a prior cascade run (e.g. CSS garbage
+            // that the old loose POSTAL_REGEX wrongly accepted before the
+            // ContactPageAddressExtractor was tightened).
+            'street_address' => null,
+            'postal_code' => null,
+            'latitude' => null,
+            'longitude' => null,
             // Leave address_source NULL — we didn't actually resolve anything,
             // and a NULL source is the cue for the next run to re-attempt
             // when --force is used.

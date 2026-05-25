@@ -172,4 +172,45 @@ class ScrapeRoasterAddressesCommandTest extends TestCase
 
         $this->assertSame('500 By Name', Roaster::where('slug', 'wanted')->value('street_address'));
     }
+
+    public function test_marking_online_only_clears_stale_address_fields(): void
+    {
+        // Regression: when a prior cascade run wrongly wrote CSS garbage
+        // into street_address/postal_code (e.g. an F-starting hex code
+        // that the old loose POSTAL_REGEX matched), the next --force run
+        // correctly identifies the site as online-only — but the previous
+        // garbage stayed in the DB and continued to render in the UI
+        // popup. is_online_only=true means "no physical address resolved,"
+        // so the address fields must be NULL'd out alongside the flag.
+        $r = Roaster::create([
+            'name'           => 'Garbage Address Co',
+            'slug'           => 'garbage-address-co',
+            'city'           => 'Vancouver',
+            'region'         => 'British Columbia',
+            'country_code'   => 'CA',
+            'website'        => 'https://example.com',
+            'has_shipping'   => true,
+            'is_active'      => true,
+            // Stale CSS junk from a prior (buggy) run:
+            'street_address' => '222222; --color-text-meta: rgba(34, 34, 34',
+            'postal_code'    => 'F5F 4F0',
+            'latitude'       => 49.2827,
+            'longitude'      => -123.1207,
+        ]);
+
+        // Force cascade to exhaust → online-only branch.
+        Http::fake(['*' => Http::response('', 404)]);
+
+        $this->artisan('roasters:scrape-addresses', [
+            '--only'  => 'garbage-address-co',
+            '--force' => true,
+        ])->assertExitCode(0);
+
+        $r->refresh();
+        $this->assertTrue((bool) $r->is_online_only, 'must be marked online-only');
+        $this->assertNull($r->street_address, 'stale street_address must be cleared');
+        $this->assertNull($r->postal_code, 'stale postal_code must be cleared');
+        $this->assertNull($r->latitude, 'stale latitude must be cleared');
+        $this->assertNull($r->longitude, 'stale longitude must be cleared');
+    }
 }
