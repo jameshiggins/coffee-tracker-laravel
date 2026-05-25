@@ -468,7 +468,22 @@ final class Shared
         // guard above already removes the worst offenders; this stays strict.
         $coffeeTagKeywords = ['coffee', 'beans', 'single origin', 'single-origin', 'blend',
                               'espresso', 'filter', 'decaf', 'whole bean', 'roasted coffee',
-                              'coffee beans'];
+                              'coffee beans',
+                              // Roast-level taxonomy. Some roaster sites (Oso Negro is
+                              // the canonical case) tag coffees ONLY by roast level
+                              // and origin region — no "Coffee" tag, no "coffee" in
+                              // the title. Without these markers, ~15 of Oso Negro's
+                              // 17 coffees were silently rejected. Safe because the
+                              // earlier excludeTypes / gear-tag / merch checks fire
+                              // first, so a "Dark"-coloured hoodie can't slip through.
+                              'light', 'medium', 'dark', 'very dark',
+                              'light roast', 'medium roast', 'dark roast',
+                              // Growing-region taxonomy from the same roaster style.
+                              // These are coffee-specific in this context — a merch
+                              // product on a roaster's site wouldn't be tagged
+                              // "Indonesia" / "Africa" as a primary category.
+                              'africa', 'americas', 'asia', 'indonesia',
+                              'central america', 'south america'];
         foreach ($coffeeTagKeywords as $kw) {
             if (in_array($kw, $tagsLower, true)) return true;
         }

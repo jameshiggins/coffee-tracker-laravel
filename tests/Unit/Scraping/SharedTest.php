@@ -273,6 +273,49 @@ class SharedTest extends TestCase
         $this->assertTrue(Shared::looksLikeCoffee('Decaf Blend Colombia', 'Coffee', []));
     }
 
+    // ── looksLikeCoffee: roast-level + region tag taxonomies ──────────────
+    //
+    // Some roaster sites (Oso Negro is the canonical case) use a minimal
+    // taxonomy where coffees are tagged only by roast level (Dark, Medium,
+    // Light, Very Dark) and growing region (Africa, Americas, Indonesia)
+    // — no explicit "Coffee" tag, no "coffee" in the title. The old
+    // positive-marker list missed every one of these and rejected ~15 of
+    // their 17 coffees, leaving the roaster with a single stale entry.
+    // These tags are unambiguous in the context of a roaster's catalog
+    // because gear/merch is already excluded upstream by product_type.
+
+    public function test_looks_like_coffee_accepts_roast_level_tag(): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee('Campfire', '', ['Dark']));
+        $this->assertTrue(Shared::looksLikeCoffee('Speckled Sky', '', ['Medium']));
+        $this->assertTrue(Shared::looksLikeCoffee('The Mudshark', '', ['Very Dark']));
+        $this->assertTrue(Shared::looksLikeCoffee('Some Bean', '', ['Light']));
+    }
+
+    public function test_looks_like_coffee_accepts_growing_region_tag(): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee('Selkirk', '', ['Africa', 'Americas', 'Indonesia']));
+        $this->assertTrue(Shared::looksLikeCoffee('Full Original', '', ['Americas', 'Indonesia']));
+    }
+
+    public function test_looks_like_coffee_accepts_combined_oso_negro_style_tags(): void
+    {
+        // Real shape of Oso Negro's coffee categories — no "Coffee" tag,
+        // no "coffee" in name, just region+roast.
+        $this->assertTrue(Shared::looksLikeCoffee('Campfire', '', ['Africa', 'Americas', 'Dark', 'Indonesia', 'Medium']));
+        $this->assertTrue(Shared::looksLikeCoffee('Messy Room', '', ['Africa', 'Americas', 'Dark', 'Indonesia']));
+        $this->assertTrue(Shared::looksLikeCoffee('Meteor', '', ['Americas', 'Dark', 'Indonesia']));
+    }
+
+    public function test_roast_level_tags_do_not_override_negative_product_type(): void
+    {
+        // A hoodie tagged Africa or Dark must still be rejected — the
+        // Merchandise product_type fires negative checks before the
+        // positive-tag fallback can ever run.
+        $this->assertFalse(Shared::looksLikeCoffee('Black Hoodie', 'Merchandise', ['Dark']));
+        $this->assertFalse(Shared::looksLikeCoffee('Africa-Print Tee', 'Apparel', ['Africa']));
+    }
+
     // ── sanitizeUtf8 ──────────────────────────────────────────────────────
 
     public function test_sanitizeUtf8_preserves_clean_utf8(): void

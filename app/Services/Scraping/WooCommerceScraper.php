@@ -47,7 +47,51 @@ class WooCommerceScraper implements RoasterScraper
             $all = array_merge($all, $batch);
             if (count($batch) < self::PER_PAGE) break;
         }
+        $this->hydrateVariantPrices($origin, $all);
         return $this->normalize($url, $all);
+    }
+
+    /**
+     * Some WC Store API installs (Oso Negro is the canonical case) return
+     * variations as bare {id, attributes} stubs in the bulk listing — no
+     * inline price, no in_stock flag. Without per-variant hydration, every
+     * variant gets dropped by the `price <= 0` guard in normalize() and
+     * the entire product silently vanishes.
+     *
+     * For each product whose first variant lacks `prices`, fetch the
+     * individual variant detail endpoint (one HTTP per variant) and merge
+     * the missing `prices` / `is_in_stock` back into the listing. The
+     * "normal" WC shape that already inlines variant prices is unchanged.
+     */
+    private function hydrateVariantPrices(string $origin, array &$products): void
+    {
+        foreach ($products as $pIdx => $product) {
+            $variations = $product['variations'] ?? null;
+            if (!is_array($variations) || empty($variations)) continue;
+            // Already hydrated by the bulk endpoint? Don't waste round-trips.
+            if (isset($variations[0]['prices']['price'])) continue;
+
+            foreach ($variations as $vIdx => $v) {
+                $id = $v['id'] ?? null;
+                if (!$id) continue;
+                try {
+                    $resp = Http::timeout(10)
+                        ->withOptions(Shared::clientOptions())
+                        ->acceptJson()
+                        ->get($origin . '/wp-json/wc/store/products/' . $id);
+                } catch (\Throwable) {
+                    continue;
+                }
+                if (!$resp->ok()) continue;
+                $hydrated = $resp->json();
+                if (!is_array($hydrated)) continue;
+                // Write back into the outer-array slot directly. Using
+                // foreach-by-reference here would write into a COPY of
+                // $product['variations'] and silently lose the hydration.
+                $products[$pIdx]['variations'][$vIdx]['prices'] = $hydrated['prices'] ?? null;
+                $products[$pIdx]['variations'][$vIdx]['is_in_stock'] = $hydrated['is_in_stock'] ?? true;
+            }
+        }
     }
 
     public function normalize(string $url, array $products): array
