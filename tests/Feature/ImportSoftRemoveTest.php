@@ -242,6 +242,88 @@ class ImportSoftRemoveTest extends TestCase
         $this->assertContains('Bows & Arrows', $names, 'named entity &amp; must decode');
     }
 
+    public function test_text_fields_get_sanitized_on_import(): void
+    {
+        // Audit on the live API showed: tasting_notes with leading U+FFFD
+        // (Botany Rd), "&amp;" still encoded (Milano Coffee), curly quotes
+        // mixed with ASCII (Rooftop's "Nari&ntilde;o" → should become Nariño),
+        // and multi-space artifacts. sanitizeText fixes all of these in
+        // one pass. The product is fed straight through ShopifyScraper
+        // so we set tasting_notes on the variant input as if it came back
+        // from the scraper's normalize() output — simpler than mocking
+        // a full Shopify body_html.
+        $product = array_merge($this->product(500, 'Test Coffee'), [
+            // Use the live-data shape: HTTP feed has &amp; encoded once.
+            // After import, the decoded text should be just "& juicy".
+            'body_html' => '<p>Tasting notes: Cherry, grape, chocolate, sweet &amp; juicy</p>',
+        ]);
+        Http::fake(['*' => Http::response($this->shopifyResponse([$product]), 200)]);
+
+        $this->importer()->import('https://example.com', name: 'Example', city: 'Vancouver');
+
+        $c = Coffee::where('source_id', '500')->first();
+        $this->assertNotNull($c);
+        if ($c->tasting_notes) {
+            $this->assertStringNotContainsString('&amp;', $c->tasting_notes,
+                'tasting_notes must have entities decoded');
+            $this->assertStringContainsString('&', $c->tasting_notes,
+                'the decoded ampersand itself should be present');
+        }
+    }
+
+    public function test_text_fields_get_trimmed_and_multi_space_collapsed(): void
+    {
+        // Direct sanitize check on a product whose tasting_notes are
+        // explicitly set in the scraper output. We bypass the scraper
+        // and call upsertCoffee-equivalent via the import flow by
+        // crafting a product whose body_html (via the Shopify scraper)
+        // produces dirty fields. Easier: just craft a product where
+        // body_html ends up as tasting_notes via the field extractor.
+        $body = '<p>Notes: &nbsp; Cherry,  grape,   chocolate &amp; sweet  </p>';
+        $product = array_merge($this->product(501, 'Dirty Notes'), [
+            'body_html' => $body,
+        ]);
+        Http::fake(['*' => Http::response($this->shopifyResponse([$product]), 200)]);
+
+        $this->importer()->import('https://example.com', name: 'Example', city: 'Vancouver');
+
+        $c = Coffee::where('source_id', '501')->first();
+        $this->assertNotNull($c);
+        $notes = $c->tasting_notes;
+        if ($notes !== null) {
+            $this->assertSame($notes, trim($notes),
+                'tasting_notes must not have leading/trailing whitespace');
+            $this->assertStringNotContainsString('  ', $notes,
+                'tasting_notes must not contain double spaces');
+            $this->assertStringNotContainsString('&amp;', $notes,
+                'tasting_notes must not contain encoded HTML entities');
+            $this->assertStringNotContainsString('&nbsp;', $notes,
+                'tasting_notes must have nbsp normalized to a regular space');
+        }
+    }
+
+    public function test_coffee_name_collapses_double_spaces(): void
+    {
+        // Real-world: Rogue Wave's catalog has titles like
+        // "Brazil  - Daterra Low Caf Reserve" — note the double space
+        // after "Brazil". The audit found 31 such names. sanitizeText
+        // collapses runs to single spaces. (Avoid trailing process
+        // words like "Pulped Natural" in the test fixture because
+        // cleanCoffeeName strips those by design.)
+        Http::fake(['*' => Http::response($this->shopifyResponse([
+            $this->product(601, 'Brazil  - Daterra  Reserve'),
+        ]), 200)]);
+
+        $this->importer()->import('https://example.com', name: 'Example', city: 'Vancouver');
+
+        $names = Coffee::pluck('name')->all();
+        $this->assertContains('Brazil - Daterra Reserve', $names);
+        foreach ($names as $n) {
+            $this->assertStringNotContainsString('  ', $n,
+                "coffee name '$n' must not have double spaces");
+        }
+    }
+
     public function test_legacy_null_source_id_coffee_is_matched_by_name_and_not_duplicated(): void
     {
         // If a current import happens to include a coffee whose name

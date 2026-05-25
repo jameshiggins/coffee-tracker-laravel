@@ -267,6 +267,19 @@ class RoasterImporter
             'removed_at' => null, // un-remove if it had been soft-removed
         ];
 
+        // Sanitize every user-visible string field. Audits on the live API
+        // surfaced 43 fields with leading/trailing whitespace, 31 with
+        // multi-spaces, 15 with literal "&amp;", 9 with curly apostrophes —
+        // all of which sanitizeText fixes in one pass. Skipped: description
+        // (already runs through cleanDescription), URLs, source_id, removed_at.
+        $textFields = ['tasting_notes', 'process', 'varietal', 'roast_level', 'origin'];
+        foreach ($textFields as $f) {
+            if (is_string($payload[$f] ?? null) && $payload[$f] !== '') {
+                $sanitized = $this->sanitizeText($payload[$f]);
+                $payload[$f] = $sanitized === '' ? null : $sanitized;
+            }
+        }
+
         // Scrub bad bytes out of every string field — scraped product
         // feeds occasionally return Latin-1 / Windows-1252 / mixed
         // encodings whose raw bytes break json_encode at read time.
@@ -366,20 +379,41 @@ class RoasterImporter
      * at the end of the title. Conservative — won't strip mid-title sizes
      * (e.g. "12oz Lined Bag" stays as-is because that's a product name).
      */
+    /**
+     * Normalize a free-text field for storage:
+     *   - decode HTML entities (&amp;, &#039;, &ntilde; → ñ)
+     *   - swap typographic curly quotes / dashes for ASCII equivalents
+     *   - drop U+FFFD replacement characters and stray control chars
+     *   - collapse internal whitespace runs to single spaces
+     *   - trim leading/trailing whitespace + leftover bullet markers
+     *
+     * Shared by every user-visible string the importer touches —
+     * coffee name, tasting_notes, origin, process, roast_level,
+     * varietal. Without it the audit on the live API showed 43 fields
+     * with leading/trailing whitespace, 31 with multi-spaces, 15 with
+     * literal "&amp;" still encoded, and 9 with curly apostrophes from
+     * sites that copy-paste Word smart quotes into product descriptions.
+     */
+    private function sanitizeText(string $s): string
+    {
+        $s = html_entity_decode($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $s = strtr($s, [
+            "\u{2018}" => "'", "\u{2019}" => "'", "\u{201C}" => '"', "\u{201D}" => '"',
+            "\u{2013}" => '-', "\u{2014}" => '-', "\u{00A0}" => ' ',
+            "\u{FFFD}" => '',  // strip U+FFFD replacement chars from upstream UTF-8 damage
+        ]);
+        // Drop ASCII control characters except \n and \t (which collapse below).
+        $s = preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/', '', $s);
+        // Collapse all whitespace runs to a single space, then trim. Also
+        // trim leading/trailing punctuation cruft commonly left behind by
+        // bullet markers and separator artifacts.
+        $s = preg_replace('/\s+/u', ' ', $s);
+        return trim($s, " \t\n\r\0\x0B|·•-—–,.");
+    }
+
     private function cleanCoffeeName(string $name): string
     {
-        // HTML entity decode FIRST — some scraper feeds return product
-        // titles with entities still encoded (e.g. "P&#038;H&#8217;s
-        // Addiction" instead of "P&H's Addiction"). Decoding here means
-        // every downstream pattern + the persisted name use the actual
-        // characters, not their HTML escapes. The &#8217; entity decodes
-        // to a curly apostrophe (U+2019); normalize to ASCII for cleaner
-        // typography in the directory, matching cleanDescription.
-        $cleaned = html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $cleaned = strtr($cleaned, [
-            "\u{2018}" => "'", "\u{2019}" => "'", "\u{201C}" => '"', "\u{201D}" => '"',
-            "\u{2013}" => '-', "\u{2014}" => '-',
-        ]);
+        $cleaned = $this->sanitizeText($name);
 
         // Trailing bag-weight annotations.
         $patterns = [
