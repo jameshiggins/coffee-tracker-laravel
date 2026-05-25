@@ -88,6 +88,13 @@ class ApplyRoasterCorrections extends Command
             'latitude' => 49.2813068,
             'longitude' => -123.0852617,
         ],
+        [
+            'match' => ['East Van Roasters', 'East Van'],
+            'street_address' => '319 Carrall St',
+            'postal_code' => 'V6B 2J4',
+            'latitude' => 49.2821010,
+            'longitude' => -123.1045130,
+        ],
     ];
 
     /**

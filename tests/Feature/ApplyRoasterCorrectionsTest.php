@@ -114,7 +114,7 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->assertNotNull($proto->address_verified_at);
     }
 
-    public function test_address_fix_applies_to_all_three_targeted_roasters(): void
+    public function test_address_fix_applies_to_all_targeted_roasters(): void
     {
         $this->makeRoaster([
             'name' => '49th Parallel', 'slug' => '49th-parallel',
@@ -131,17 +131,24 @@ class ApplyRoasterCorrectionsTest extends TestCase
             'latitude' => 49.2827, 'longitude' => -123.1207,
             'address_source' => 'website',
         ]);
+        $this->makeRoaster([
+            'name' => 'East Van Roasters', 'slug' => 'east-van-roasters',
+            'street_address' => '(604) 629-7562[email\xa0protected], 16 W Hastings St',
+            'postal_code' => 'V6B 1G4',
+            'latitude' => 49.2827, 'longitude' => -123.1207,
+            'address_source' => 'website',
+        ]);
 
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
 
         $this->assertSame('2902 Main St', Roaster::where('slug', '49th-parallel')->value('street_address'));
         $this->assertSame('1359 Powell Street', Roaster::where('slug', 'agro-roasters')->value('street_address'));
         $this->assertSame('883 East Hastings Street', Roaster::where('slug', 'prototype')->value('street_address'));
+        $this->assertSame('319 Carrall St', Roaster::where('slug', 'east-van-roasters')->value('street_address'));
+        $this->assertSame('V6B 2J4', Roaster::where('slug', 'east-van-roasters')->value('postal_code'));
 
-        // All three pinned away from the exact city centroid (Agro is
-        // legitimately close — same neighbourhood — but never *exactly*
-        // 49.2827; that value is the fallback signature).
-        foreach (['49th-parallel', 'agro-roasters', 'prototype'] as $slug) {
+        // All pinned away from the exact city centroid.
+        foreach (['49th-parallel', 'agro-roasters', 'prototype', 'east-van-roasters'] as $slug) {
             $lat = (float) Roaster::where('slug', $slug)->value('latitude');
             $this->assertNotSame(49.2827, $lat, "{$slug} still on Vancouver centroid");
             $this->assertSame('manual', Roaster::where('slug', $slug)->value('address_source'));
