@@ -36,6 +36,35 @@ class ShopifyScraper implements RoasterScraper
         return $this->normalize($url, $response->json());
     }
 
+    /**
+     * Find a bag-weight signal inside a product description. Strict by
+     * design — only accept matches that resolve to a STANDARD specialty-
+     * coffee bag size (100, 200, 227, 250, 340, 454, 500, 1000, 2268 g,
+     * or the imperial 5lb / 12oz). This rules out incidental numbers in
+     * the description ("Altitude: 1600 MASL", "Notes: ... 200 m³ ...")
+     * that would otherwise produce wildly wrong sizes.
+     *
+     * The collapsed-whitespace input handles Botany Rd's "2  50G" and
+     * "250  G" template artifacts as "2 50G" / "250 G", which parseGrams
+     * then resolves to 250g.
+     */
+    private function parseBodyGrams(string $body): ?int
+    {
+        if ($body === '') return null;
+        // Try parseGrams on each candidate substring matching a weight pattern.
+        if (!preg_match_all('/\b(\d+(?:[.,]\d+)?)\s*(g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\b/iu', $body, $matches, PREG_SET_ORDER)) {
+            return null;
+        }
+        $standard = [100, 200, 227, 250, 300, 340, 454, 500, 1000, 2000, 2268];
+        foreach ($matches as $m) {
+            $candidate = Shared::parseGrams($m[0]);
+            if ($candidate !== null && in_array($candidate, $standard, true)) {
+                return $candidate;
+            }
+        }
+        return null;
+    }
+
     /** Filter Shopify products to coffee bags and normalize to the RoasterScraper output shape. */
     public function normalize(string $url, ?array $payload): array
     {
@@ -53,6 +82,22 @@ class ShopifyScraper implements RoasterScraper
                 ? $origin . '/products/' . $p['handle']
                 : null;
 
+            // Pre-compute a body_html-derived gram weight for the product —
+            // used as a last-resort fallback when neither variant title nor
+            // product title carry a parseable bag size. Botany Rd is the
+            // canonical case: variants are all "Default Title", product
+            // titles read "DORSIA | MILK BAR" / "ZOQUIÁPAM WASHED | MEXICO"
+            // with no grams, but the body_html includes "250G". Whitespace
+            // is collapsed first because some templates render the size as
+            // "2  50G" or "250  G" via formatting artifacts.
+            // Replace tags with a space BEFORE stripping, so "</p><p>250G</p>"
+            // becomes " 250G " not "Bag250G" (which would have no word boundary
+            // before the digit and parseGrams would miss it entirely).
+            $bodyForWeight = preg_replace('/\s+/', ' ', strip_tags(
+                preg_replace('/<[^>]+>/', ' ', (string) ($p['body_html'] ?? ''))
+            ));
+            $bodyGrams = $this->parseBodyGrams($bodyForWeight);
+
             $rawVariants = [];
             foreach ($p['variants'] ?? [] as $v) {
                 $varTitle = (string) ($v['title'] ?? '');
@@ -63,7 +108,12 @@ class ShopifyScraper implements RoasterScraper
                 // Try the variant title first; fall back to the product title
                 // for shops that put the bag size in the product name and use
                 // "Default Title" as the variant (Thom Bargen, Sam James pattern).
-                $grams = Shared::parseGrams($varTitle) ?? Shared::parseGrams($title);
+                // Last resort: the body_html — covers Default-Title-only sites
+                // that put the bag size only in the product description (Botany
+                // Rd pattern).
+                $grams = Shared::parseGrams($varTitle)
+                    ?? Shared::parseGrams($title)
+                    ?? $bodyGrams;
                 if ($grams === null) continue;
                 $variantId = isset($v['id']) ? (string) $v['id'] : null;
                 $price = (float) ($v['price'] ?? 0);

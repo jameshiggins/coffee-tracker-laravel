@@ -17,6 +17,78 @@ class ShopifyScraperTest extends TestCase
         $this->assertSame('shopify', $this->scraper()->platformKey());
     }
 
+    public function test_normalize_falls_back_to_body_html_grams_for_default_title_variants(): void
+    {
+        // Real-world: Botany Rd's Shopify feed has product titles like
+        // "DORSIA | MILK BAR" with no weight, variants all titled
+        // "Default Title", but body_html contains "250G". Without the
+        // body_html fallback, 8 of their 9 in-stock coffees got dropped.
+        $payload = [
+            'products' => [
+                [
+                    'id' => 100, 'title' => 'DORSIA | MILK BAR', 'product_type' => '',
+                    'tags' => [], 'handle' => 'dorsia-milk-bar',
+                    'body_html' => '<p>Producer: Jaguara &amp; Mix Bag</p><p>250G</p>',
+                    'variants' => [
+                        ['id' => 1001, 'title' => 'Default Title', 'price' => '20.00', 'available' => true],
+                    ],
+                ],
+                [
+                    // Whitespace artifact: "250  G" should still resolve to
+                    // 250g via the inter-digit-unit gap pattern.
+                    'id' => 200, 'title' => 'LA SENDA NATURAL | GUATEMALA', 'product_type' => '',
+                    'tags' => [], 'handle' => 'la-senda',
+                    'body_html' => '<p>Origin: Guatemala</p><p>250  G</p>',
+                    'variants' => [
+                        ['id' => 2001, 'title' => 'Default Title', 'price' => '30.00', 'available' => true],
+                    ],
+                ],
+                [
+                    // Empty body_html → no fallback available → drop.
+                    'id' => 300, 'title' => 'NO-INFO COFFEE', 'product_type' => '',
+                    'tags' => [], 'handle' => 'no-info',
+                    'body_html' => '',
+                    'variants' => [
+                        ['id' => 3001, 'title' => 'Default Title', 'price' => '25.00', 'available' => true],
+                    ],
+                ],
+            ],
+        ];
+
+        $result = $this->scraper()->normalize('https://shop.example', $payload);
+
+        $names = array_column($result, 'name');
+        $this->assertContains('DORSIA | MILK BAR', $names, 'body_html "250G" fallback should import');
+        $this->assertContains('LA SENDA NATURAL | GUATEMALA', $names, 'whitespace-tolerant "250  G" should resolve to 250g');
+        $this->assertNotContains('NO-INFO COFFEE', $names, 'no body_html signal → still skipped, no blind default');
+
+        $dorsia = collect($result)->firstWhere('name', 'DORSIA | MILK BAR');
+        $this->assertSame(250, $dorsia['variants'][0]['grams']);
+    }
+
+    public function test_body_grams_fallback_ignores_non_standard_numbers_to_avoid_false_matches(): void
+    {
+        // Descriptions often mention altitude ("1600 MASL"), brew recipes
+        // ("30 g coffee per 500 ml water"), etc. Without the standard-size
+        // whitelist these would set absurd bag weights. None are standard
+        // bag sizes, so the product must drop instead of importing with
+        // a wrong weight.
+        $payload = [
+            'products' => [[
+                'id' => 1, 'title' => 'BAD MATCH | ETHIOPIA', 'product_type' => '',
+                'tags' => [], 'handle' => 'bad',
+                'body_html' => '<p>Altitude: 1600 MASL</p><p>Brew at 92°C, 30 g coffee per 500 ml water</p>',
+                'variants' => [
+                    ['id' => 11, 'title' => 'Default Title', 'price' => '22.00', 'available' => true],
+                ],
+            ]],
+        ];
+
+        $result = $this->scraper()->normalize('https://shop.example', $payload);
+
+        $this->assertEmpty($result, 'altitude / brew-recipe numbers must not become bag weights');
+    }
+
     public function test_normalize_extracts_coffees_and_drops_non_coffee(): void
     {
         $payload = [
