@@ -186,6 +186,24 @@ class ImportSoftRemoveTest extends TestCase
         $this->assertNotNull($stale->removed_at, 'legacy NULL-source_id coffee should be soft-removed when absent from reimport');
     }
 
+    public function test_coffee_name_html_entities_are_decoded_on_import(): void
+    {
+        // Real-world: Oso Negro's WC feed returns "P&#038;H&#8217;s
+        // Addiction" — the ampersand and curly-apostrophe arrive as raw
+        // HTML entities. Without decoding at import time those entities
+        // get persisted as-is and render literally in the UI ("P&#038;H").
+        Http::fake(['*' => Http::response($this->shopifyResponse([
+            $this->product(101, 'P&#038;H&#8217;s Addiction'),
+            $this->product(102, 'Bows &amp; Arrows'),
+        ]), 200)]);
+
+        $this->importer()->import('https://example.com', name: 'Example', city: 'Vancouver');
+
+        $names = Coffee::pluck('name')->all();
+        $this->assertContains("P&H's Addiction", $names, 'numeric entities &#038; and &#8217; must decode');
+        $this->assertContains('Bows & Arrows', $names, 'named entity &amp; must decode');
+    }
+
     public function test_legacy_null_source_id_coffee_is_matched_by_name_and_not_duplicated(): void
     {
         // If a current import happens to include a coffee whose name

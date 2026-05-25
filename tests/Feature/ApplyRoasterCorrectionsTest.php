@@ -306,15 +306,26 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->assertEquals($updatedAt, $q->updated_at, 'no rewrite when already Stirling');
     }
 
-    // ── C) Ensure 16 roasters exist ──────────────────────────────────────
+    // ── C) Ensure required roasters exist ────────────────────────────────
+    //
+    // The expected count derives from the REQUIRED_ROASTERS const via a
+    // single source-of-truth helper so adding new entries to the array
+    // doesn't require updating every count assertion in this file.
 
-    public function test_it_creates_all_sixteen_missing_roasters_with_sensible_defaults(): void
+    private function requiredRoasterCount(): int
     {
+        $ref = new \ReflectionClass(\App\Console\Commands\ApplyRoasterCorrections::class);
+        return count($ref->getConstant('REQUIRED_ROASTERS'));
+    }
+
+    public function test_it_creates_all_required_missing_roasters_with_sensible_defaults(): void
+    {
+        $expected = $this->requiredRoasterCount();
         $this->assertSame(0, Roaster::count());
 
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
 
-        $this->assertSame(16, Roaster::count(), 'all 16 required roasters created from an empty table');
+        $this->assertSame($expected, Roaster::count(), "all {$expected} required roasters created from an empty table");
 
         $sip = Roaster::where('slug', 'sipstruck-specialty-coffee')->first();
         $this->assertNotNull($sip);
@@ -330,21 +341,31 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->assertNotNull($yama);
         $this->assertSame('Café Yamabiko', $yama->name);
         $this->assertSame('Quebec', $yama->region);
+
+        // BC scour batch — verify one of the Vancouver Island additions
+        // came through with the right city + region.
+        $caffe = Roaster::where('slug', 'caffe-fantastico')->first();
+        $this->assertNotNull($caffe, 'Caffe Fantastico must be created by the BC scour batch');
+        $this->assertSame('Victoria', $caffe->city);
+        $this->assertSame('British Columbia', $caffe->region);
+        $this->assertSame('https://caffefantastico.com', $caffe->website);
     }
 
     public function test_create_step_is_idempotent_and_never_duplicates(): void
     {
+        $expected = $this->requiredRoasterCount();
         // First run creates them.
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
-        $this->assertSame(16, Roaster::count());
+        $this->assertSame($expected, Roaster::count());
 
         // Second run must be a complete no-op.
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
-        $this->assertSame(16, Roaster::count(), 'second run must not duplicate any roaster');
+        $this->assertSame($expected, Roaster::count(), 'second run must not duplicate any roaster');
     }
 
     public function test_existing_roaster_matched_by_name_is_not_duplicated_or_overwritten(): void
     {
+        $expected = $this->requiredRoasterCount();
         // A roaster that already exists under a different slug but same name.
         $existing = $this->makeRoaster([
             'name' => 'House of Funk', 'slug' => 'house-of-funk-vancouver',
@@ -360,8 +381,8 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $existing->refresh();
         $this->assertSame('https://hand-edited.example', $existing->website);
         $this->assertSame('house-of-funk-vancouver', $existing->slug);
-        // The other 15 still get created → 16 total.
-        $this->assertSame(16, Roaster::count());
+        // The hand-edited row is the matched one; the rest get created → total = $expected.
+        $this->assertSame($expected, Roaster::count());
     }
 
     // ── --dry-run ────────────────────────────────────────────────────────
@@ -381,7 +402,7 @@ class ApplyRoasterCorrectionsTest extends TestCase
         // URL not changed, city not changed, no roasters created.
         $this->assertSame('https://stale.example', $hatch->fresh()->website);
         $this->assertSame('Toronto', $quietly->fresh()->city);
-        $this->assertSame(2, Roaster::count(), 'dry-run must not create the 16 roasters');
+        $this->assertSame(2, Roaster::count(), 'dry-run must not create any required roaster');
     }
 
     public function test_dry_run_then_real_run_applies_everything(): void
@@ -394,8 +415,8 @@ class ApplyRoasterCorrectionsTest extends TestCase
 
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
         $this->assertSame('https://hatchcrafted.com', $hatch->fresh()->website);
-        // 1 pre-existing (Hatch) + 16 created.
-        $this->assertSame(17, Roaster::count());
+        // 1 pre-existing (Hatch) + REQUIRED_ROASTERS count.
+        $this->assertSame(1 + $this->requiredRoasterCount(), Roaster::count());
     }
 
     // ── full-run integration ─────────────────────────────────────────────
@@ -414,7 +435,7 @@ class ApplyRoasterCorrectionsTest extends TestCase
 
         $this->assertSame('https://nemesis.coffee', Roaster::where('slug', 'nemesis')->value('website'));
         $this->assertSame('Stirling', Roaster::where('slug', 'quietly-coffee')->value('city'));
-        // 2 pre-existing + 16 created = 18.
-        $this->assertSame(18, Roaster::count());
+        // 2 pre-existing + REQUIRED_ROASTERS count.
+        $this->assertSame(2 + $this->requiredRoasterCount(), Roaster::count());
     }
 }

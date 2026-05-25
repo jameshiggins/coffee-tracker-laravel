@@ -269,6 +269,37 @@ class ApplyRoasterCorrections extends Command
         ['name' => 'House of Funk',              'city' => 'Vancouver',     'region' => 'British Columbia', 'website' => 'https://funk.coffee'],
         ['name' => 'Prairie Lily Coffee',        'city' => 'Lloydminster',  'region' => 'Saskatchewan',     'website' => 'https://prairielilycoffee.com'],
         ['name' => 'Hooray Coffee Lab',          'city' => 'Burnaby',       'region' => 'British Columbia', 'website' => 'https://hooraycoffee.ca'],
+        // ── BC scour: Vancouver Island + neighbouring islands (Reddit
+        // r/BuyCanadian list, May 2020 + comment additions). All are
+        // active small-batch roasters; the cascade fills in coffees on
+        // the next import-all run. Skipped: Be Still Coffee (defunct),
+        // Burde Beans (likely closed per Alberni Valley Tourism).
+        ['name' => 'Peaks Coffee Company',          'city' => 'Duncan',          'region' => 'British Columbia', 'website' => 'https://www.peakscoffeeco.com'],
+        ['name' => 'Bows Coffee Roasters',          'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://bowscoffee.com'],
+        ['name' => 'Caffe Fantastico',              'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://caffefantastico.com'],
+        ['name' => '2% Jazz Coffee',                'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://2percentjazz.com'],
+        ['name' => 'Eleven Speed Coffee',           'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://www.elevenspeedcoffee.ca'],
+        ['name' => 'Mile Zero Coffee Co.',          'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://www.milezerocoffee.com'],
+        ['name' => 'Level Ground Coffee Roasters',  'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://levelground.com'],
+        ['name' => 'Esquimalt Roasting Company',    'city' => 'Esquimalt',       'region' => 'British Columbia', 'website' => 'https://www.esquimaltroasting.com'],
+        ['name' => 'Smoke & Mirrors Coffee Co.',    'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://smokeandmirrors.coffee'],
+        ['name' => 'Black Bear Specialty Coffee',   'city' => 'Victoria',        'region' => 'British Columbia', 'website' => 'https://blackbearcoffee.square.site'],
+        ['name' => 'Gulf Islands Roasting Co.',     'city' => 'Nanaimo',         'region' => 'British Columbia', 'website' => 'https://gulfislandsroastingco.com'],
+        ['name' => 'Coyote Coffee Roastery',        'city' => 'Parksville',      'region' => 'British Columbia', 'website' => 'https://www.coyotescoffee.ca'],
+        ['name' => 'Regard Coffee Roasters',        'city' => 'Nanaimo',         'region' => 'British Columbia', 'website' => 'https://www.regardcoffee.com'],
+        ['name' => "Creekmore's Coffee",            'city' => 'Coombs',          'region' => 'British Columbia', 'website' => 'https://www.creekmorescoffee.com'],
+        ['name' => 'Mount Maxwell Coffee Roasters', 'city' => 'Salt Spring Island', 'region' => 'British Columbia', 'website' => 'https://mtmaxwell.com'],
+        ['name' => 'Oughtred Coffee & Tea',         'city' => 'Delta',           'region' => 'British Columbia', 'website' => 'https://www.oughtred.com'],
+        ['name' => 'Red Roaster Coffee',            'city' => 'Gabriola Island', 'region' => 'British Columbia', 'website' => 'https://www.redroaster.ca'],
+        ['name' => 'French Press Coffee Roasters',  'city' => 'Qualicum Beach',  'region' => 'British Columbia', 'website' => 'https://www.fpcoffeeroasters.com'],
+        ['name' => 'Karma Coffee',                  'city' => 'Coombs',          'region' => 'British Columbia', 'website' => 'https://www.karmacoffee.com'],
+        ['name' => 'Royston Roasting Co.',          'city' => 'Royston',         'region' => 'British Columbia', 'website' => 'https://www.rrcocoffee.com'],
+        ['name' => 'The Stick in the Mud Coffee House', 'city' => 'Sooke',       'region' => 'British Columbia', 'website' => 'https://stickinthemud.ca'],
+        ['name' => 'Rhodos Coffee',                 'city' => 'Courtenay',       'region' => 'British Columbia', 'website' => 'https://rhodoscoffee.ca'],
+        ['name' => 'Charge Coffee Company',         'city' => 'Nanaimo',         'region' => 'British Columbia', 'website' => 'https://chargecoffeecompany.com'],
+        ['name' => 'Vancouver Island Coffee',       'city' => 'Cowichan Valley', 'region' => 'British Columbia', 'website' => 'https://vi.coffee'],
+        ['name' => 'Fix Coffee',                    'city' => 'Vancouver',       'region' => 'British Columbia', 'website' => 'https://www.fixcoffee.ca'],
+        ['name' => 'Milano Coffee',                 'city' => 'Vancouver',       'region' => 'British Columbia', 'website' => 'https://milanocoffee.ca'],
     ];
 
     public function handle(): int

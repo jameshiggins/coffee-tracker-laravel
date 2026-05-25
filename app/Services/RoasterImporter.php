@@ -357,13 +357,25 @@ class RoasterImporter
      */
     private function cleanCoffeeName(string $name): string
     {
+        // HTML entity decode FIRST — some scraper feeds return product
+        // titles with entities still encoded (e.g. "P&#038;H&#8217;s
+        // Addiction" instead of "P&H's Addiction"). Decoding here means
+        // every downstream pattern + the persisted name use the actual
+        // characters, not their HTML escapes. The &#8217; entity decodes
+        // to a curly apostrophe (U+2019); normalize to ASCII for cleaner
+        // typography in the directory, matching cleanDescription.
+        $cleaned = html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $cleaned = strtr($cleaned, [
+            "\u{2018}" => "'", "\u{2019}" => "'", "\u{201C}" => '"', "\u{201D}" => '"',
+            "\u{2013}" => '-', "\u{2014}" => '-',
+        ]);
+
         // Trailing bag-weight annotations.
         $patterns = [
             '/\s*[\(\[]\s*\d+(?:[.,]\d+)?\s*(?:g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\.?\s*[\)\]]\s*$/i',
             '/\s*[-–—|·]\s*\d+(?:[.,]\d+)?\s*(?:g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\.?\s*$/i',
             '/\s+\d+(?:[.,]\d+)?\s*(?:g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\s*$/i',
         ];
-        $cleaned = $name;
         foreach ($patterns as $p) {
             $cleaned = preg_replace($p, '', $cleaned) ?? $cleaned;
         }
