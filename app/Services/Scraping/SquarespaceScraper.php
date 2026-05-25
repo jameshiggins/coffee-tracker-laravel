@@ -17,7 +17,16 @@ use RuntimeException;
  */
 class SquarespaceScraper implements RoasterScraper
 {
-    private const SHOP_PATHS = ['/shop', '/coffees', '/store', '/products', '/coffee', '/shop-all', '/buy'];
+    private const SHOP_PATHS = [
+        '/shop', '/coffees', '/store', '/products', '/coffee', '/shop-all', '/buy',
+        // Squarespace lets owners number a renamed shop page, so multiple
+        // installs we've seen use /shop-1 (French Press is the canonical case).
+        '/shop-1', '/shop-2',
+        // "Beans" / "Beans we love" / "Whole bean" are common Squarespace
+        // shop-page slugs for roaster sites (Red Roaster uses /the-beans).
+        '/the-beans', '/beans', '/our-coffee', '/our-coffees', '/whole-bean',
+        '/online-store', '/online-shop',
+    ];
 
     public function platformKey(): string
     {

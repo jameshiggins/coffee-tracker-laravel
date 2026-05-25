@@ -122,6 +122,34 @@ class SquarespaceScraperTest extends TestCase
         $this->assertSame([], $s->fetch('https://example.com'));
     }
 
+    public function test_fetch_discovers_shop_at_alternative_paths_like_shop_dash_one(): void
+    {
+        // Real-world: French Press Coffee Roasters' Squarespace shop lives
+        // at /shop-1 (the original /shop got renamed and Squarespace
+        // appended -1 to the new one). Without that path in SHOP_PATHS
+        // the importer returned 0 beans despite the site having 19 active
+        // coffees. This regression-guards the path list.
+        Http::fakeSequence()
+            ->push('not found', 404)              // /shop
+            ->push('not found', 404)              // /coffees
+            ->push('not found', 404)              // /store
+            ->push('not found', 404)              // /products
+            ->push('not found', 404)              // /coffee
+            ->push('not found', 404)              // /shop-all
+            ->push('not found', 404)              // /buy
+            ->push($this->shopPayload([           // /shop-1 — the winning path
+                $this->product('p1', 'Ethiopia Kilenso Moconissa', [
+                    $this->variant('v1', '340g', '22.00', true),
+                ]),
+            ]), 200, ['Content-Type' => 'application/json']);
+
+        $s = new SquarespaceScraper();
+        $beans = $s->fetch('https://example.com');
+
+        $this->assertCount(1, $beans);
+        $this->assertSame('Ethiopia Kilenso Moconissa', $beans[0]['name']);
+    }
+
     public function test_qty_in_stock_zero_marks_variant_unavailable(): void
     {
         Http::fakeSequence()->push($this->shopPayload([
