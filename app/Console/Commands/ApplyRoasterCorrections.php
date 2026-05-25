@@ -43,6 +43,9 @@ class ApplyRoasterCorrections extends Command
         ['match' => ['Nemesis', 'Nemesis Coffee'],            'website' => 'https://nemesis.coffee'],
         ['match' => ['Prototype', 'Prototype Coffee'],        'website' => 'https://prototypecoffee.ca'],
         ['match' => ['Luna', 'Luna Coffee'],                  'website' => 'https://enjoylunacoffee.com'],
+        // .com was a near-empty stub site → only 1 coffee indexed.
+        // .ca is the real shop with the full menu.
+        ['match' => ['Continuum', 'Continuum Coffee'],        'website' => 'https://continuumcoffee.ca/'],
     ];
 
     /**

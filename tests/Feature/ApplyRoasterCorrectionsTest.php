@@ -55,6 +55,22 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->assertSame('https://hatchcrafted.com', $r->fresh()->website);
     }
 
+    public function test_url_fix_repoints_continuum_from_dotcom_to_dotca(): void
+    {
+        // Regression: the scraper had Continuum at .com, which serves a
+        // largely-empty stub site so only one coffee was indexed. The real
+        // shop is at .ca with a full menu. Same URL-drift class of bug as
+        // Hatch / Subtext / Nemesis / Prototype / Luna.
+        $r = $this->makeRoaster([
+            'name' => 'Continuum Coffee', 'slug' => 'continuum-coffee',
+            'website' => 'https://continuumcoffee.com',
+        ]);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $this->assertSame('https://continuumcoffee.ca/', $r->fresh()->website);
+    }
+
     public function test_url_fix_is_idempotent_and_only_touches_target_rows(): void
     {
         $hatch = $this->makeRoaster(['name' => 'Hatch Coffee', 'slug' => 'hatch-coffee', 'website' => 'https://hatchcrafted.com']);
