@@ -62,7 +62,10 @@ class CheckLinks extends Command
                     default:
                         $broken++;
                         if (count($brokenSamples) < $maxBroken) {
-                            $brokenSamples[] = sprintf('  %s | %s | %s', $r->name, $label, $url . ' ('.$result['kind'].')');
+                            $statusSuffix = isset($result['status'])
+                                ? sprintf(' [HTTP %d]', $result['status'])
+                                : (isset($result['error']) ? sprintf(' [%s]', $result['error']) : '');
+                            $brokenSamples[] = sprintf('  %s | %s | %s%s', $r->name, $label, $url, $statusSuffix);
                         }
                         break;
                 }
@@ -125,10 +128,10 @@ class CheckLinks extends Command
                 ->withHeaders(['User-Agent' => 'roastmap-link-checker/1.0'])
                 ->withOptions(['allow_redirects' => false])
                 ->head($url);
-        } catch (ConnectionException) {
-            return ['kind' => 'broken'];
-        } catch (\Throwable) {
-            return ['kind' => 'broken'];
+        } catch (ConnectionException $e) {
+            return ['kind' => 'broken', 'error' => 'connection: ' . substr($e->getMessage(), 0, 80)];
+        } catch (\Throwable $e) {
+            return ['kind' => 'broken', 'error' => get_class($e) . ': ' . substr($e->getMessage(), 0, 80)];
         }
 
         $code = $r->status();
