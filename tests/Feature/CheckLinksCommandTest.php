@@ -147,6 +147,34 @@ class CheckLinksCommandTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_shopify_product_403_falls_back_to_json_endpoint_and_counts_ok(): void
+    {
+        // Shopify storefronts behind Cloudflare reject many requests
+        // from data-center IPs (Fly) with 403 regardless of UA. The
+        // /products/{handle}.json endpoint is rate-limited differently
+        // and almost always answers. When we get 403 on a Shopify
+        // product URL the probe should retry the .json variant and
+        // count 200 there as OK — link rot it isn't.
+        $r = $this->makeRoaster([
+            'website' => 'https://shop.example/products/yirg',
+        ]);
+        $this->addCoffee($r, [
+            'name' => 'Yirg',
+            'product_url' => 'https://shop.example/products/yirg',
+        ], ['https://shop.example/products/yirg?variant=42']);
+
+        Http::fake([
+            'shop.example/products/yirg.json*'    => Http::response(['product' => ['id' => 1]], 200),
+            'shop.example/products/yirg'          => Http::response('forbidden', 403),
+            'shop.example/products/yirg?variant=*' => Http::response('forbidden', 403),
+        ]);
+
+        $this->artisan('roasters:check-links')
+            ->expectsOutputToContain('OK: 3')
+            ->expectsOutputToContain('BROKEN: 0')
+            ->assertExitCode(0);
+    }
+
     public function test_only_flag_scopes_to_a_single_roaster(): void
     {
         $a = $this->makeRoaster(['name' => 'A', 'slug' => 'roaster-a', 'website' => 'https://a.example']);

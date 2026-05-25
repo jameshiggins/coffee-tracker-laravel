@@ -154,6 +154,33 @@ class CheckLinks extends Command
         // 206 = honored Range — Partial Content, still success
         if ($code >= 200 && $code < 300) return ['kind' => 'ok', 'status' => $code];
         if ($code >= 300 && $code < 400) return ['kind' => 'redirect', 'status' => $code];
+
+        // Shopify bot-detection fallback. Shopify storefronts behind
+        // Cloudflare reject many requests from data-center IPs with 403
+        // regardless of UA / headers, but the JSON product endpoint
+        // (/products/{handle}.json) — the same one our importer uses —
+        // is rate-limited differently and usually answers from Fly.
+        // If the original URL looks like a Shopify product link and got
+        // a 403, probe the .json variant; 200 there proves the product
+        // still exists at the underlying handle.
+        if ($code === 403 && preg_match('~/products/([^/?]+)~', $url, $m)) {
+            $base = explode('/products/', $url, 2)[0];
+            $handle = $m[1];
+            $jsonUrl = $base . '/products/' . $handle . '.json';
+            try {
+                $jr = Http::timeout(self::TIMEOUT)
+                    ->withHeaders($headers)
+                    ->withOptions(['allow_redirects' => false])
+                    ->get($jsonUrl);
+                $jcode = $jr->status();
+                if ($jcode >= 200 && $jcode < 300) {
+                    return ['kind' => 'ok', 'status' => $jcode];
+                }
+            } catch (\Throwable) {
+                // Fall through to the original broken status.
+            }
+        }
+
         return ['kind' => 'broken', 'status' => $code];
     }
 }
