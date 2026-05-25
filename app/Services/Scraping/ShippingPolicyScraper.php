@@ -109,15 +109,109 @@ class ShippingPolicyScraper
         return null;
     }
 
-    /** First 200 chars of the policy as a fallback note for the admin. */
+    /**
+     * Extract a concise shipping note worth showing to a user. The old
+     * "first sentence with 'shipping'" approach matched the duplicated
+     * page title before any real content (the "Shipping policy | Roaster
+     * Skip to content" garbage class). This version strips nav/footer
+     * chrome first, then prefers sentences with HIGH-SIGNAL policy
+     * phrases (free over $X, ships within N days, delivery times, …)
+     * over the generic word "shipping".
+     */
     private function extractShortNote(string $text): ?string
     {
-        $snippet = mb_substr($text, 0, 220);
-        // Prefer the first sentence containing "shipping" or "delivery" if present
-        if (preg_match('/[^.!?]*\b(shipping|delivery)\b[^.!?]{0,180}[.!?]/i', $text, $m)) {
-            $sent = trim($m[0]);
-            if (strlen($sent) >= 20 && strlen($sent) <= 240) return $sent;
+        $clean = $this->stripChrome($text);
+        if (mb_strlen($clean) < 30) return null;
+
+        // High-signal policy phrases — these only appear in real policy
+        // content, not in nav/footer. English + French (Quebec roasters).
+        $signals = [
+            // ENG quantitative
+            '/orders?\s+(?:over|above|of|exceeding)\s+\$\s*\d+/i',
+            '/free\s+(?:shipping|delivery)\s+(?:on\s+|over\s+|across\s+|within\s+|for\s+)/i',
+            '/ships?\s+(?:within|in)\s+\d/i',
+            '/processed\s+and\s+shipped\s+within\s+\d/i',
+            '/delivery\s+(?:within|in|takes?)\s+\d/i',
+            '/\d\s*-\s*\d+\s+(?:business\s+)?days?/i',
+            '/flat[- ]?rate\s+(?:shipping|delivery)/i',
+            // ENG qualitative
+            '/we\s+ship\s+(?:to|across|throughout|worldwide|internationally)/i',
+            '/shipping\s+(?:rates|costs?|fees?)\s+(?:are|start|begin)/i',
+            // FR quantitative
+            '/livraison\s+gratuite/i',
+            '/commandes?\s+(?:de\s+plus\s+de|sup[ée]rieur(?:es?)?\s+[àa])\s+\d/i',
+            '/exp[ée]diti?on\s+(?:gratuite|sous\s+\d|en\s+\d)/i',
+            // FR qualitative
+            '/nous\s+exp[ée]dions/i',
+        ];
+
+        $best = [];
+        foreach (explode('.', $clean) as $rawSent) {
+            $sent = trim($rawSent);
+            if (mb_strlen($sent) < 20 || mb_strlen($sent) > 240) continue;
+            foreach ($signals as $sig) {
+                if (preg_match($sig, $sent)) {
+                    $best[] = $sent;
+                    break;
+                }
+            }
+            if (count($best) >= 2) break;
         }
-        return $snippet !== '' ? $snippet . '…' : null;
+
+        if (empty($best)) return null;
+        $note = implode('. ', $best) . '.';
+        // Cap at 280 chars (enough for 1-2 sentences) and strip residual
+        // double-spaces just in case.
+        $note = preg_replace('/\s+/', ' ', trim($note));
+        if (mb_strlen($note) > 280) {
+            $note = mb_substr($note, 0, 277) . '…';
+        }
+        return $note;
+    }
+
+    /**
+     * Remove nav / header / footer chrome that's not part of the actual
+     * policy. The patterns are tuned to common Shopify / Squarespace /
+     * WooCommerce + bilingual (EN/FR) templates that the live audit
+     * surfaced. Conservative — keeps any sentence that doesn't fully match.
+     */
+    private function stripChrome(string $text): string
+    {
+        $chromePatterns = [
+            // ENG nav/footer markers — strip the marker, leave surrounding text
+            '/\bSkip to (?:content|main content)\b/i',
+            '/\bSign (?:in|up)\b/i',
+            '/\bMy account\b/i',
+            '/\bSearch(?:\s+our\s+(?:site|store))?\b/i',
+            '/\bMenu\s+(?:Close|Open)\b/i',
+            '/\bClose menu\b/i',
+            '/\bCart\s+\(?\d*\)?/i',
+            '/\bView cart\b/i',
+            '/\bCheckout\b/i',
+            '/\bFollow us\b/i',
+            '/\bCopyright\s+©?\s*\d{4}/i',
+            '/\bAll rights reserved\b/i',
+            '/\bPrivacy(?:\s+policy)?\b\s*(?:Terms|Refund|Shipping|Contact)?/i',
+            '/\bTerms\s+of\s+(?:service|use)\b/i',
+            '/\bRefund\s+policy\b/i',
+            '/\bPowered by Shopify\b/i',
+            // FR nav/footer markers
+            '/\bAller au contenu\b/i',
+            '/\bIgnorer et passer au contenu\b/i',
+            '/\bPasser au contenu\b/i',
+            '/\bMon compte\b/i',
+            '/\bPanier\b/i',
+            '/\bConditions (?:g[ée]n[ée]rales|d[\'’]utilisation)\b/i',
+            '/\bPolitique\s+de\s+(?:confidentialit[ée]|remboursement)\b/i',
+            // Common social media noise
+            '/\b(?:Facebook|Instagram|Twitter|TikTok|YouTube|Pinterest|LinkedIn)\b/i',
+            // Repeated page-title pattern: "Shipping policy – RoasterName Shipping policy"
+            '/(Shipping\s+policy|Politique\s+d[\'’]exp[ée]diti?on)\s*[\-–|]\s*[^.]{1,40}\s+\1/iu',
+        ];
+        foreach ($chromePatterns as $p) {
+            $text = preg_replace($p, ' ', $text) ?? $text;
+        }
+        // Collapse the whitespace gaps the strips leave behind.
+        return trim(preg_replace('/\s+/', ' ', $text));
     }
 }

@@ -337,6 +337,32 @@ class SharedTest extends TestCase
         $this->assertTrue(Shared::looksLikeCoffee('Chocolate Hazelnut Espresso', 'Coffee', []));
     }
 
+    public function test_looks_like_coffee_rejects_honey_jar_products(): void
+    {
+        // Rosso Coffee sells "Drizzle Honey" — actual raw honey, not coffee.
+        // The user spotted it in the directory. These patterns reject
+        // honey-as-product without false-positiving on coffee names that
+        // legitimately include "honey" as a flavor descriptor or process.
+        $this->assertFalse(Shared::looksLikeCoffee('Drizzle Honey', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Raw Honey', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Wildflower Honey', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Pure Honey', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Liquid Honey', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Honey Jar', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Honey Sticks', '', []));
+    }
+
+    public function test_looks_like_coffee_still_keeps_honey_processed_coffees(): void
+    {
+        // "Honey" in the title as a PROCESS tag or part of a coffee name
+        // must NOT be rejected. Rosso's "Honey, Hunny / Guatemala" is a
+        // real coffee; "Red Honey" / "Black Honey" describe process.
+        $this->assertTrue(Shared::looksLikeCoffee('Honey, Hunny / Guatemala', '', ['beans']));
+        $this->assertTrue(Shared::looksLikeCoffee('Ponderosa Red Honey MS Geisha 100g', '', []));
+        $this->assertTrue(Shared::looksLikeCoffee('Janson Honey Geisha Lot 623', '', []));
+        $this->assertTrue(Shared::looksLikeCoffee('Lerida Honey Geisha Lot 5', '', []));
+    }
+
     public function test_looks_like_coffee_still_rejects_actual_chocolate_products(): void
     {
         // Bars / truffles / discs — actual chocolate confectionery.

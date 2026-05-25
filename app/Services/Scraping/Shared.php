@@ -325,6 +325,18 @@ final class Shared
         // descriptor in real blend names ("Cocoa Mocha Nut", etc.).
         if (preg_match('/\b(hot\s+cocoa|hot\s+chocolate|cocoa\s+(?:powder|mix|blend\s+\(drink)|drinking\s+chocolate)\b/', $titleLower)) return false;
 
+        // Honey AS A PRODUCT (not a flavor descriptor in a coffee name).
+        // Rosso's "Drizzle Honey" is the canonical case — actual raw honey
+        // their Shopify lists alongside coffees. Bare "Honey" in a coffee
+        // name (e.g. "Honey, Hunny / Guatemala" — a real Rosso coffee, or
+        // a process tag like "Red Honey") stays allowed; we only reject
+        // when the title is clearly a honey-jar product.
+        if (preg_match('/^\s*(?:(?:raw|drizzle|wildflower|clover|liquid|pure|organic|spring|local)\s+)+honey\s*$/i', $titleLower)) return false;
+        if (preg_match('/^\s*honey\s+(?:jar|drizzle|gold|white|amber|comb|stick|sticks|bottle)\s*$/i', $titleLower)) return false;
+        // Drizzle Honey specifically — even without a prefix word, this exact
+        // 2-word title is honey-product.
+        if (preg_match('/^\s*drizzle\s+honey\b/i', $titleLower)) return false;
+
         // Chocolate CONFECTIONERY — bars, truffles, squares, etc. Matches
         // only "chocolate <product-noun>" so that "Chocolate Cake" / "Choc
         // Cherry Bomb" / "Cookies & Chocolate" coffees pass through as
