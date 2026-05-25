@@ -66,6 +66,50 @@ class ShopifyScraperTest extends TestCase
         $this->assertSame(250, $dorsia['variants'][0]['grams']);
     }
 
+    public function test_body_grams_fallback_recovers_whitespace_typo_pattern_2_50G(): void
+    {
+        // Real-world: Botany Rd templates render "250G" as "2 50G" due
+        // to a font / formatting artifact. NGUISSE / HABTAMU / ALO all
+        // hit this. The pass-2 recovery concatenates the leading digit
+        // and accepts only when the result is a standard bag size.
+        $payload = [
+            'products' => [[
+                'id' => 1, 'title' => 'NGUISSE NARE BOMBE | ETHIOPIA', 'product_type' => '',
+                'tags' => [], 'handle' => 'nguisse',
+                'body_html' => '<p>Origin: Ethiopia</p><p>2 50G</p>',
+                'variants' => [
+                    ['id' => 11, 'title' => 'Default Title', 'price' => '28.00', 'available' => true],
+                ],
+            ]],
+        ];
+
+        $result = $this->scraper()->normalize('https://shop.example', $payload);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(250, $result[0]['variants'][0]['grams']);
+    }
+
+    public function test_body_grams_fallback_accepts_225g_as_a_standard_size(): void
+    {
+        // Botany Rd's QUEBRADITAS body has "225 G" — a real bag size
+        // some shops use as an 8oz rounding. Must accept.
+        $payload = [
+            'products' => [[
+                'id' => 1, 'title' => 'QUEBRADITAS', 'product_type' => '',
+                'tags' => [], 'handle' => 'q',
+                'body_html' => '<p>Producer: …</p><p>225 G</p>',
+                'variants' => [
+                    ['id' => 11, 'title' => 'Default Title', 'price' => '33.00', 'available' => true],
+                ],
+            ]],
+        ];
+
+        $result = $this->scraper()->normalize('https://shop.example', $payload);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(225, $result[0]['variants'][0]['grams']);
+    }
+
     public function test_body_grams_fallback_ignores_non_standard_numbers_to_avoid_false_matches(): void
     {
         // Descriptions often mention altitude ("1600 MASL"), brew recipes

@@ -51,17 +51,36 @@ class ShopifyScraper implements RoasterScraper
     private function parseBodyGrams(string $body): ?int
     {
         if ($body === '') return null;
-        // Try parseGrams on each candidate substring matching a weight pattern.
-        if (!preg_match_all('/\b(\d+(?:[.,]\d+)?)\s*(g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\b/iu', $body, $matches, PREG_SET_ORDER)) {
-            return null;
-        }
-        $standard = [100, 200, 227, 250, 300, 340, 454, 500, 1000, 2000, 2268];
-        foreach ($matches as $m) {
-            $candidate = Shared::parseGrams($m[0]);
-            if ($candidate !== null && in_array($candidate, $standard, true)) {
-                return $candidate;
+        // Standard specialty-coffee bag sizes (Canadian + imperial). The
+        // whitelist is what keeps incidental description numbers (altitude,
+        // brew recipes, harvest years) from becoming bag weights.
+        // 225g = some shops' "8oz" rounding; 227g = canonical 1/2 lb.
+        $standard = [100, 200, 225, 227, 250, 300, 340, 454, 500, 1000, 2000, 2268];
+
+        // Pass 1: standard "<digits>[unit]" matches.
+        if (preg_match_all('/\b(\d+(?:[.,]\d+)?)\s*(g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\b/iu', $body, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $candidate = Shared::parseGrams($m[0]);
+                if ($candidate !== null && in_array($candidate, $standard, true)) {
+                    return $candidate;
+                }
             }
         }
+
+        // Pass 2: whitespace-typo recovery for the "2 50G" → 250 pattern
+        // seen on Botany Rd (template artifact splits the leading digit
+        // from the rest). Only accept when concatenating produces a
+        // standard size — without that guard, "30 g" → 30 wouldn't
+        // help, and "3 12g" → 312 wouldn't either.
+        if (preg_match_all('/\b(\d)\s+(\d+)\s*(g|gram|grams|kg|oz|lb)\b/iu', $body, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $combined = (int) ($m[1] . $m[2]);
+                if (in_array($combined, $standard, true)) {
+                    return $combined;
+                }
+            }
+        }
+
         return null;
     }
 
