@@ -213,10 +213,43 @@ fly ssh console -a coffee-tracker-laravel -C \
   "php artisan tinker --execute='Mail::raw(\"roastmap mail test\", fn(\$m)=>\$m->to(\"you@example.com\")->subject(\"test\"));'"
 ```
 
-### Not yet wired (future workstreams)
+### Error tracking — Sentry (you set this up — ~5 min)
 
-- **Error tracking** — `spatie/laravel-ignition` is the dev error page only;
-  no prod exception alerting yet. Add Sentry or Spatie Flare.
-- **Ops notifications** — a daily summary email (roasters added, import
-  errors, variant rejections) is not built; rejections currently surface
-  only in the weekly digest, and additions nowhere.
+Uncaught exceptions are reported to [Sentry](https://sentry.io) from
+`app/Exceptions/Handler.php` via `Sentry\Laravel\Integration`. The SDK is inert
+until a DSN is set, so nothing leaves dev or a key-less deploy. To turn it on in
+production:
+1. Create a free Sentry account → new project → platform **Laravel**.
+2. Copy the DSN (Project → Settings → Client Keys / SDK Setup).
+3. Set it as a Fly secret:
+   ```
+   fly secrets set SENTRY_LARAVEL_DSN=https://...ingest.sentry.io/... -a coffee-tracker-laravel
+   ```
+4. Add an alert rule in Sentry (e.g. email on every new issue) so a crash pages
+   you instead of only showing a user a 500.
+
+Defaults (`config/sentry.php`): captures 100% of errors, performance tracing
+**off** (no quota surprises — set `SENTRY_TRACES_SAMPLE_RATE` to enable),
+`send_default_pii` off, and the GET /up probe excluded so uptime polling never
+floods the feed. Verify after setting the secret:
+```
+fly ssh console -a coffee-tracker-laravel -C "php artisan sentry:test"
+```
+
+### Ops notifications — daily + weekly digests (wired)
+
+- **Daily** (`reports:daily-ops`, 11:30 UTC): roasters added in the last 24h,
+  active roasters failing import (with the error message), outstanding variant
+  rejections, and mail-delivery confirmation. Sends every day — its reliable
+  arrival is itself the "mail + scheduler are alive" signal. `--only-when-notable`
+  suppresses all-clear days; `--dry-run` prints the JSON instead of sending.
+- **Weekly** (`reports:weekly-digest`, Mon 13:00 UTC): the fuller data-quality
+  audit (imports, dropped variants, likely duplicates, address gaps).
+- Both email the ops address (`mail.from.address`; override with `--email`).
+
+### Still optional (not wired)
+
+- **Sentry release tagging** — `SENTRY_RELEASE` is unset, so errors aren't
+  grouped by deploy. Wire the git SHA through the Docker build to enable it.
+- **Performance tracing / profiling** — off by default; enable via
+  `SENTRY_TRACES_SAMPLE_RATE` if you ever want latency data.
