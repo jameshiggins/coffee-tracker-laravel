@@ -55,6 +55,18 @@ class Kernel extends ConsoleKernel
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
         $this->pingIfConfigured($digest, 'digest');
 
+        // Ops notifications: daily ops summary covering roasters added, import
+        // errors, dropped variants, and mail delivery. 11:30 UTC (≈ 04:30 PST),
+        // 30 min after the daily import so today's outcome is captured, and well
+        // clear of restock alerts (14:00) and the weekly digest (Mon 13:00).
+        // Sends every day — the reliable arrival is itself the "mail + scheduler
+        // are alive" signal, and its absence is the alarm (backstopped by /up).
+        $schedule->command('reports:daily-ops')
+            ->dailyAt('11:30')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+
         // Ops liveness: bump the scheduler heartbeat that GET /up reads. If
         // schedule:work dies, this stops and /up flips to 503 within ~15 min,
         // so whatever uptime monitor watches /up catches a dead scheduler —
