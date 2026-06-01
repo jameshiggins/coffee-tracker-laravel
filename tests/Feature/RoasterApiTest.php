@@ -147,4 +147,64 @@ class RoasterApiTest extends TestCase
             ->assertJsonPath('is_online_only', false);
     }
 
+    public function test_index_exposes_import_freshness(): void
+    {
+        $seeded = $this->seedRoaster([
+            'last_import_status' => 'success',
+            'last_imported_at' => now()->subDay(),
+        ]);
+        // Re-read through the model so the assertion uses the same timezone
+        // normalization the API does, rather than assuming UTC.
+        $expected = $seeded->fresh()->last_imported_at->toIso8601String();
+
+        $roaster = $this->getJson('/api/roasters')->assertOk()->json('roasters.0');
+
+        $this->assertSame('success', $roaster['last_import_status']);
+        $this->assertSame($expected, $roaster['last_imported_at']);
+    }
+
+    public function test_freshness_is_null_when_never_imported(): void
+    {
+        $this->seedRoaster(); // default seed leaves import columns null
+
+        $roaster = $this->getJson('/api/roasters')->assertOk()->json('roasters.0');
+
+        $this->assertNull($roaster['last_imported_at']);
+        $this->assertNull($roaster['last_import_status']);
+    }
+
+    public function test_stats_returns_coverage_and_freshness_summary(): void
+    {
+        // fresh + located
+        $this->seedRoaster(['slug' => 'r1', 'name' => 'R1',
+            'last_import_status' => 'success', 'last_imported_at' => now()->subDay()]);
+        // stale (old success) + located
+        $this->seedRoaster(['slug' => 'r2', 'name' => 'R2',
+            'last_import_status' => 'success', 'last_imported_at' => now()->subDays(30)]);
+        // never imported + unplaced (no coords, not online-only)
+        $this->seedRoaster(['slug' => 'r3', 'name' => 'R3',
+            'latitude' => null, 'longitude' => null]);
+        // online-only (no pin expected) + fresh
+        $this->seedRoaster(['slug' => 'r4', 'name' => 'R4',
+            'is_online_only' => true, 'latitude' => null, 'longitude' => null,
+            'last_import_status' => 'success', 'last_imported_at' => now()->subDay()]);
+        // inactive — excluded from every count
+        Roaster::create(['name' => 'Off', 'slug' => 'off', 'city' => 'Vancouver', 'is_active' => false]);
+
+        $stats = $this->getJson('/api/stats')->assertOk()->json();
+
+        $this->assertSame(4, $stats['roasters_total']);
+        $this->assertSame(4, $stats['coffees_total']);
+        $this->assertNotNull($stats['last_imported_at']);
+
+        $this->assertSame(2, $stats['freshness']['fresh']);
+        $this->assertSame(1, $stats['freshness']['stale']);
+        $this->assertSame(1, $stats['freshness']['never']);
+        $this->assertSame(7, $stats['freshness']['fresh_within_days']);
+
+        $this->assertSame(2, $stats['map_coverage']['located']);
+        $this->assertSame(1, $stats['map_coverage']['online_only']);
+        $this->assertSame(1, $stats['map_coverage']['unplaced']);
+    }
+
 }

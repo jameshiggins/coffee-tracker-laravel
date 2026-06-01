@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Roaster;
+use App\Models\ScraperRejectionLog;
 use App\Services\CoffeeFieldExtractor;
 use App\Services\FrenchToEnglish;
 use App\Services\OriginGazetteer;
@@ -191,6 +192,12 @@ class RoasterImporter
             return;
         }
 
+        // Trust#9: rejection logs are a snapshot of the LATEST import, not a
+        // growing daily-cron history. Clear this roaster's prior rows here —
+        // after the empty-fetch guard so a transient empty poll doesn't wipe
+        // the breadcrumbs — then syncVariants re-logs whatever it drops below.
+        ScraperRejectionLog::where('roaster_id', $roaster->id)->delete();
+
         foreach ($coffees as $c) {
             $sourceId = (string) ($c['source_id'] ?? '');
             $name = (string) ($c['name'] ?? '');
@@ -317,7 +324,16 @@ class RoasterImporter
         foreach ($scrapedVariants as $v) {
             $grams = $v['grams'];
             $price = (float) ($v['price'] ?? 0);
-            if ($price <= 0) continue;  // defense in depth — never persist $0 variants
+            if ($price <= 0) {
+                // defense in depth — never persist $0 variants; log so a feed
+                // that suddenly reports every price as 0 is visible (Trust#9).
+                $this->logRejection($coffee, ScraperRejectionLog::REASON_PRICE_NON_POSITIVE, [
+                    'price' => $v['price'] ?? null,
+                    'grams' => $grams,
+                    'source_size_label' => $v['source_size_label'] ?? null,
+                ]);
+                continue;
+            }
             // Sanity check on $/g — Canadian specialty coffee runs roughly
             // 3.5¢/g (cheapest commodity) to 200¢/g (rare Geisha lots).
             // Anything outside this band is almost certainly a parsing bug:
@@ -325,7 +341,15 @@ class RoasterImporter
             // class of bug), and >200¢/g means a portion pack or sample.
             if ($grams > 0) {
                 $cpg = ($price / $grams) * 100;
-                if ($cpg < 2.5 || $cpg > 250) continue;
+                if ($cpg < 2.5 || $cpg > 250) {
+                    $this->logRejection($coffee, ScraperRejectionLog::REASON_CPG_OUT_OF_BAND, [
+                        'price' => $v['price'] ?? null,
+                        'grams' => $grams,
+                        'cpg' => round($cpg, 1),
+                        'source_size_label' => $v['source_size_label'] ?? null,
+                    ]);
+                    continue;
+                }
             }
             $newInStock = (bool) ($v['available'] ?? true);
             $seen[$grams] = true;
@@ -361,6 +385,27 @@ class RoasterImporter
         // Variants that vanished from the import — drop them.
         $existing->reject(fn ($v) => isset($seen[$v->bag_weight_grams]))
             ->each(fn ($v) => $v->delete());
+    }
+
+    /**
+     * Trust#9: record one dropped variant. Best-effort — telemetry must never
+     * break an import, so a write failure here is swallowed. coffee_name is
+     * snapshotted alongside the FK so the log reads cleanly even if the coffee
+     * is later removed or renamed.
+     */
+    private function logRejection(\App\Models\Coffee $coffee, string $reason, array $context): void
+    {
+        try {
+            ScraperRejectionLog::create([
+                'roaster_id' => $coffee->roaster_id,
+                'coffee_id' => $coffee->id,
+                'coffee_name' => $coffee->name,
+                'reason' => $reason,
+                'context' => $context,
+            ]);
+        } catch (\Throwable) {
+            // never let a telemetry write abort the catalog sync
+        }
     }
 
     private function inferNameFromUrl(string $url): string

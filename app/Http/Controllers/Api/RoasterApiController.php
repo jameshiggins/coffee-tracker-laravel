@@ -7,6 +7,7 @@ use App\Models\Coffee;
 use App\Models\Roaster;
 use App\Models\Tasting;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class RoasterApiController extends Controller
@@ -42,6 +43,70 @@ class RoasterApiController extends Controller
         ]);
         $ratingMap = $this->buildRatingMap($roaster->coffees->pluck('id')->all());
         return response()->json($this->transformRoaster($roaster, true, $ratingMap), 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
+    /**
+     * Trust#1: directory-wide coverage + freshness summary. Powers a public
+     * "how complete and current is this data" panel — total roasters/coffees,
+     * how many were refreshed recently vs. gone stale, and how much of the map
+     * is actually placed. All read from columns already on the roaster row, so
+     * this is a handful of cheap COUNT()s with no per-row work.
+     */
+    public function stats(): JsonResponse
+    {
+        $freshWithinDays = 7;
+        $freshCutoff = Carbon::now()->subDays($freshWithinDays);
+
+        $roastersTotal = Roaster::where('is_active', true)->count();
+
+        // Freshness buckets over the active set, partitioned so they sum to the
+        // total: fresh (a recent successful import), never (no import on record),
+        // stale (everything else — old, empty, or errored).
+        $fresh = Roaster::where('is_active', true)
+            ->where('last_import_status', 'success')
+            ->where('last_imported_at', '>=', $freshCutoff)
+            ->count();
+        $never = Roaster::where('is_active', true)
+            ->whereNull('last_imported_at')
+            ->count();
+        $stale = max(0, $roastersTotal - $fresh - $never);
+
+        $coffeesTotal = Coffee::available()
+            ->whereHas('roaster', fn ($q) => $q->where('is_active', true))
+            ->count();
+
+        // Map coverage facets (independent, not a strict partition): how many
+        // active roasters are placed on the map, are deliberately online-only,
+        // or *should* have a pin but are still missing coordinates.
+        $located = Roaster::where('is_active', true)
+            ->whereNotNull('latitude')->whereNotNull('longitude')
+            ->count();
+        $onlineOnly = Roaster::where('is_active', true)
+            ->where('is_online_only', true)
+            ->count();
+        $unplaced = Roaster::where('is_active', true)
+            ->where('is_online_only', false)
+            ->where(fn ($q) => $q->whereNull('latitude')->orWhereNull('longitude'))
+            ->count();
+
+        $lastImportedAt = Roaster::where('is_active', true)->max('last_imported_at');
+
+        return response()->json([
+            'roasters_total' => $roastersTotal,
+            'coffees_total' => $coffeesTotal,
+            'last_imported_at' => $lastImportedAt ? Carbon::parse($lastImportedAt)->toIso8601String() : null,
+            'freshness' => [
+                'fresh' => $fresh,
+                'stale' => $stale,
+                'never' => $never,
+                'fresh_within_days' => $freshWithinDays,
+            ],
+            'map_coverage' => [
+                'located' => $located,
+                'online_only' => $onlineOnly,
+                'unplaced' => $unplaced,
+            ],
+        ], 200);
     }
 
     /** Last-resort favicon fallback via Google's public S2 service. */
@@ -108,6 +173,12 @@ class RoasterApiController extends Controller
             'shipping_notes' => $roaster->shipping_notes,
             'has_subscription' => (bool) $roaster->has_subscription,
             'subscription_notes' => $roaster->subscription_notes,
+            // Trust#1: import freshness so the UI can show "updated N days ago"
+            // and badge stale / never-imported roasters. The internal error text
+            // stays admin-only — we expose just the timestamp + coarse status
+            // ('success' | 'empty' | 'error' | null).
+            'last_imported_at' => $roaster->last_imported_at?->toIso8601String(),
+            'last_import_status' => $roaster->last_import_status,
             'coffees' => $roaster->coffees->map(function ($c) use ($ratingMap) {
                 $variants = $c->variants->map(fn ($v) => [
                     'id' => $v->id,

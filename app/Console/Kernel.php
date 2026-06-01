@@ -42,6 +42,16 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onOneServer()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+
+        // Trust#2: weekly ops digest rolling up import health, sanity-gate
+        // drops, likely duplicates, and address gaps into one email. Monday
+        // 13:00 UTC (≈ 06:00 PST), after the daily import so the week opens
+        // on a settled snapshot. Read-only — it only reports.
+        $schedule->command('reports:weekly-digest')
+            ->weeklyOn(1, '13:00')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
     }
 
     /**
