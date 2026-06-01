@@ -26,6 +26,11 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
+# Seed the scheduler heartbeat so GET /up doesn't false-alarm in the brief
+# gap before schedule:work's first tick. The scheduler then refreshes it
+# every few minutes; if it dies, the value goes stale and /up flips to 503.
+php artisan ops:heartbeat scheduler.tick || true
+
 # Background scheduler. Laravel's schedule:work loops every minute and
 # dispatches the jobs defined in app/Console/Kernel.php:
 #   - roasters:import-all  daily 11:00 UTC (inventory/price refresh)

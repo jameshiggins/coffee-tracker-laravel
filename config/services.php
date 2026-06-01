@@ -46,4 +46,14 @@ return [
         'key' => env('GOOGLE_PLACES_API_KEY'),
     ],
 
+    // Ops monitoring: healthchecks.io-style ping URLs for the scheduled jobs
+    // (see app/Console/Kernel.php). Each scheduled command pings its URL on
+    // success and {url}/fail on failure, so a missed run alerts you even if
+    // mail is down. Leave unset to disable per-job pings — the in-app
+    // scheduler.tick heartbeat behind GET /up still covers liveness.
+    'healthchecks' => [
+        'import' => env('HEALTHCHECK_IMPORT_URL'),
+        'digest' => env('HEALTHCHECK_DIGEST_URL'),
+    ],
+
 ];

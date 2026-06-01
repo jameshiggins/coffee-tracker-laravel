@@ -6,7 +6,12 @@ use App\Http\Controllers\Admin\CoffeeController as AdminCoffeeController;
 use App\Http\Controllers\Admin\VariantController as AdminVariantController;
 use App\Http\Controllers\Admin\ModerationController as AdminModerationController;
 use App\Http\Controllers\Auth\GoogleAuthController;
+use App\Http\Controllers\HealthController;
 use Illuminate\Support\Facades\Route;
+
+// Ops: liveness/readiness probe for uptime monitors. Public, no secrets in
+// the body. 200 healthy / 503 degraded — see HealthController.
+Route::get('/up', HealthController::class)->name('health');
 
 Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect'])->name('auth.google.redirect');
 Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->name('auth.google.callback');

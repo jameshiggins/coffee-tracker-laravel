@@ -16,12 +16,13 @@ class Kernel extends ConsoleKernel
         // 04:00 PST (= 11:00 UTC) — quiet hour for both NA and EU storefront
         // CDNs. ~2-minute total runtime for ~35 roasters; failures are
         // recorded per-roaster in last_import_status / last_import_error.
-        $schedule->command('roasters:import-all')
+        $import = $schedule->command('roasters:import-all')
             ->dailyAt('11:00')
             ->withoutOverlapping()
             ->onOneServer()
             ->runInBackground()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+        $this->pingIfConfigured($import, 'import');
 
         // Q14: email users about wishlisted beans that came back in stock,
         // ~3 hours after the import finishes so the deltas are settled.
@@ -47,11 +48,36 @@ class Kernel extends ConsoleKernel
         // drops, likely duplicates, and address gaps into one email. Monday
         // 13:00 UTC (≈ 06:00 PST), after the daily import so the week opens
         // on a settled snapshot. Read-only — it only reports.
-        $schedule->command('reports:weekly-digest')
+        $digest = $schedule->command('reports:weekly-digest')
             ->weeklyOn(1, '13:00')
             ->withoutOverlapping()
             ->onOneServer()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+        $this->pingIfConfigured($digest, 'digest');
+
+        // Ops liveness: bump the scheduler heartbeat that GET /up reads. If
+        // schedule:work dies, this stops and /up flips to 503 within ~15 min,
+        // so whatever uptime monitor watches /up catches a dead scheduler —
+        // not just a dead web server. Cheap (one upsert) and single-server.
+        $schedule->call(fn () => \App\Models\SystemHeartbeat::ping('scheduler.tick'))
+            ->everyFiveMinutes()
+            ->name('scheduler-heartbeat')
+            ->withoutOverlapping();
+    }
+
+    /**
+     * Attach healthchecks.io-style pings to a scheduled event when its URL is
+     * configured (config/services.php → healthchecks.*). No-op until the URL
+     * is set, so local/dev runs stay quiet. Pings the base URL on success and
+     * {url}/fail on failure — the healthchecks.io / Better Stack convention.
+     */
+    private function pingIfConfigured(\Illuminate\Console\Scheduling\Event $event, string $key): void
+    {
+        $url = config("services.healthchecks.{$key}");
+
+        if (is_string($url) && $url !== '') {
+            $event->pingOnSuccess($url)->pingOnFailure(rtrim($url, '/').'/fail');
+        }
     }
 
     /**
