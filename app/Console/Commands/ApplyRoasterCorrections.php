@@ -242,6 +242,20 @@ class ApplyRoasterCorrections extends Command
             'longitude' => -123.0742950,
             'city' => 'Richmond',
         ],
+        // ── batch 4: storefronts the cascade wrongly marked online_only ──
+        // Rogue Wave's site bot-blocks the address scraper, so the cascade
+        // found nothing and flagged is_online_only=true. It has a real
+        // tasting bar at 11322 119 St NW (Yelp + Waze + the roaster's own
+        // /pages/cafe). OSM resolves the "ROGUE WAVE" shop node directly,
+        // giving exact coords + postal. Stamped manual so the next cascade
+        // run leaves it alone and the online_only flag stays cleared.
+        [
+            'match' => ['Rogue Wave Coffee', 'Rogue Wave'],
+            'street_address' => '11322 119 Street NW',
+            'postal_code' => 'T5G 3C2',
+            'latitude' => 53.5630794,
+            'longitude' => -113.5275158,
+        ],
     ];
 
     /**
