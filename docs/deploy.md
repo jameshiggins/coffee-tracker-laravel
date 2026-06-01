@@ -48,8 +48,12 @@ In `coffee-tracker-laravel/`:
 fly launch --name coffee-tracker-api --region yyz --no-deploy
 ```
 
-Edit `fly.toml` if needed (default Postgres + persistent volume for
-SQLite if you stay on SQLite — but Postgres is safer for production).
+Edit `fly.toml` if needed. **This project runs SQLite in production**, on a
+Fly persistent volume mounted at `/data` (`docker/entrypoint.sh` runs
+`php artisan migrate --force` on every boot). Postgres is a reasonable
+alternative if you'd rather not depend on a single volume, but it is *not*
+what's wired today — switching would mean changing `DB_CONNECTION` and the
+volume setup.
 
 Set secrets:
 ```

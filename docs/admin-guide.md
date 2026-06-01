@@ -1,7 +1,11 @@
 # Admin Guide
 
-You're the operator. The admin UI lives at `/admin` and has no auth — restrict
-it at the network layer (Cloudflare Access, IP allow-list) before going live.
+You're the operator. The admin UI lives at `/admin` and is gated by **HTTP
+Basic auth** (`BasicAdminAuth` middleware, aliased `admin.basic`). Set the
+credentials with the `ADMIN_USER` / `ADMIN_PASS` env vars — Fly secrets in
+prod. The gate **fails closed**: if either is unset the whole `/admin/*` group
+returns 503, so there's no window where it's world-writable. (Visitor auth for
+the React app is separate — Sanctum bearer tokens.)
 
 ## Daily flow
 
@@ -22,6 +26,31 @@ Failures email `CRON_FAILURE_EMAIL` (or `MAIL_FROM_ADDRESS` if unset).
 The restock alert job `alerts:restock` runs at 14:00 — it digests every
 wishlisted coffee that came back in stock in the last 24h and emails the
 wishlist owner.
+
+## Monitoring — how you know it's all working
+
+Several signals, each catching a different failure (full setup in `deploy.md`):
+
+1. **`GET /up`** (`https://api.roastmap.ca/up`) — **200** when the database is
+   reachable *and* the scheduler is ticking, **503** otherwise. Point an
+   external uptime monitor (UptimeRobot / Better Stack) at it; a 503 is your
+   "page someone now" signal. It's the only check that catches a *silently dead
+   scheduler* — the worst failure, because the site still looks fine while the
+   catalogue quietly goes stale.
+2. **Daily ops email** (`reports:daily-ops`, 11:30 UTC) — roasters added in the
+   last 24h, active roasters failing import (with the error message),
+   outstanding variant rejections, and mail-delivery confirmation. It sends
+   every day, so if it simply stops arriving, that itself tells you mail or the
+   scheduler broke. Preview without sending: `php artisan reports:daily-ops
+   --dry-run`; suppress all-clear days with `--only-when-notable`.
+3. **Weekly digest** (`reports:weekly-digest`, Mon 13:00 UTC) — the deeper
+   data-quality audit: imports, dropped variants, likely duplicate roasters,
+   and address gaps.
+4. **Sentry** — uncaught exceptions, once `SENTRY_LARAVEL_DSN` is set in prod.
+
+Both digests email the ops address (`MAIL_FROM_ADDRESS`); override ad-hoc with
+`--email=you@example.com`. Separately, if a scheduled job *fails*, its console
+output is emailed to `CRON_FAILURE_EMAIL`.
 
 ## Adding a roaster
 

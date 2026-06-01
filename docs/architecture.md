@@ -33,9 +33,10 @@ This pattern is the spine of the whole import pipeline.
 ### 2. Strategy pattern for scrapers
 
 `RoasterScraper` is an interface; `ShopifyScraper`, `WooCommerceScraper`,
-`GenericHtmlScraper` are implementations. `ScraperRegistry` probes them
-in order on first import and caches the platform on the roaster row so
-subsequent runs skip the probe.
+`SquarespaceScraper`, and `GenericHtmlScraper` are implementations.
+`ScraperRegistry` probes them in order (most specific first, generic
+catch-all last) on first import and caches the platform on the roaster row
+so subsequent runs skip the probe.
 
 The generic JSON-LD scraper is the fallback for sites that aren't on a
 known platform but expose `<script type="application/ld+json">` Product
@@ -62,14 +63,20 @@ every public surface via the global scope, but stay in the DB for:
 The user-facing "delete my tasting" action is also a soft-delete. Users
 who genuinely need GDPR-style erasure email us and we hard-delete by hand.
 
-### 5. Boring dependencies
+### 5. Minimal dependencies
 
-- **No analytics, no telemetry, no error reporting SaaS** — server logs
-  are enough for a directory of this size
+- **One observability SaaS, and only for errors** — production exceptions
+  go to Sentry (`app/Exceptions/Handler.php`), which is inert until a DSN is
+  set so dev and CI stay silent. No product analytics, no user telemetry —
+  server logs plus the daily ops email cover the rest for a directory this
+  size. (See `system-overview.md` Flow 4 for the full observability picture.)
 - **No JS bundler ceremony for Tailwind** — using the Tailwind CDN keeps
   the React app's `npm install` time under 30 seconds
-- **OpenStreetMap Nominatim**, not Google Maps — free, no API key, good
-  enough for street-address-to-lat/lng on Canadian addresses
+- **OpenStreetMap Nominatim for geocoding** — free, no API key. The address
+  cascade prefers scraped JSON-LD / contact-page addresses, then falls back
+  to Nominatim search. A Google Places fallback exists but is **off by
+  default** (stubbed unless `GOOGLE_PLACES_API_KEY` is set), so a stock
+  deploy needs no paid maps key.
 - **Resend for email** — chosen because it's the cheapest credible option
   with good deliverability and a sane API
 
@@ -77,37 +84,49 @@ who genuinely need GDPR-style erasure email us and we hard-delete by hand.
 
 ```
 roasters          1───∞      coffees       1───∞     coffee_variants
-                                │
-                                │
+   │                            │                          │
+   │                            │            rejected imports → scraper_rejection_log
+   │
 users             1───∞      tastings (soft-deletes)
    │                            ↑
    │                            │ flagged_by_user_id
    │
    1───∞       wishlist (UNIQUE user_id, coffee_id)
+
+system_heartbeats   (standalone key→timestamp store behind /up)
 ```
 
 A `coffee_variant` is a (coffee, bag_weight_grams) row with its own
 price + stock state. One Yirgacheffe coffee might have variants for 250g,
 340g, and 1kg.
 
+Roasters also carry geocoding columns (`street_address`, `latitude`,
+`longitude`, `address_source`, `is_online_only`) and import bookkeeping
+(`last_import_status`, `last_import_error`, `last_imported_at`).
+`scraper_rejection_log` records variants refused by the import sanity gate;
+`system_heartbeats` stores liveness ticks (`scheduler.tick`, `mail.sent`).
+See `system-overview.md` for the full table-by-table tour.
+
 ## Scheduled jobs
 
-```
-$schedule->command('roasters:import-all')
-  ->dailyAt('11:00')
-  ->withoutOverlapping()
-  ->onOneServer()
-  ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL'));
+Six commands run on the in-container scheduler (`app/Console/Kernel.php`):
 
-$schedule->command('alerts:restock')
-  ->dailyAt('14:00')
-  ->withoutOverlapping()
-  ->onOneServer();
-```
+| When (UTC) | Command | Purpose |
+|---|---|---|
+| daily 11:00 | `roasters:import-all` | nightly catalogue refresh |
+| daily 11:30 | `reports:daily-ops` | daily ops summary email |
+| daily 14:00 | `alerts:restock` | wishlist back-in-stock emails |
+| Mon 13:00 | `reports:weekly-digest` | weekly data-quality audit email |
+| 1st 12:00 | `roasters:scrape-addresses` | monthly address / geocode sweep |
+| every 5 min | `scheduler-heartbeat` | bumps `scheduler.tick` for `/up` |
 
 `withoutOverlapping` prevents a slow import from triggering a second
-instance the next day. `onOneServer` matters once we're on more than one
-Fly.io machine.
+instance the next day; `onOneServer` matters once we're on more than one
+Fly.io machine; import/report failures email `CRON_FAILURE_EMAIL`. The
+scheduler itself is `php artisan schedule:work`, launched in a restart loop
+by `docker/entrypoint.sh` and kept always-on by `fly.toml`
+(`auto_stop_machines = 'off'`). Its 5-minute heartbeat is exactly what `/up`
+reads to notice a silently dead scheduler — see `system-overview.md` Flow 4.
 
 ## What we'd change if we did it again
 
