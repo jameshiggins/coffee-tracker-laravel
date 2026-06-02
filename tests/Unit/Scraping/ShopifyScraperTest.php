@@ -243,4 +243,87 @@ class ShopifyScraperTest extends TestCase
         $result = $this->scraper()->normalize('https://example.com', $payload);
         $this->assertSame([], $result);
     }
+
+    // ── Metafield enrichment (A3a: Agro Roasters) ───────────────────────────
+    // Shopify's /products.json omits metafields, so roasters who park
+    // roast/notes/process there render them as "<strong>Roast: </strong>
+    // <span class="metafield-…">Light</span>" rows on the product page. The
+    // two helpers below parse those rows and fold them onto a coffee.
+
+    public function test_extract_metafield_pairs_parses_strong_labelled_rows(): void
+    {
+        // Mirrors Agro's real product-page markup: bolded label, value in a
+        // metafield span, plus a bullet-separated notes list.
+        $html = <<<'HTML'
+        <div class="product__info">
+          <div class="with-icon__beside rte cf"><p><strong>Roast: </strong><span class="metafield-single_line_text_field">Light</span></p></div>
+          <div class="with-icon__beside rte cf"><p><strong>Notes: </strong><span class="metafield-multi_line_text_field">Golden berry &bull; Jasmine &bull; Pear</span></p></div>
+          <div class="with-icon__beside rte cf"><p><strong>Process: </strong><span class="metafield-single_line_text_field">Washed</span></p></div>
+          <div class="with-icon__beside rte cf"><p><strong>Producer: </strong>Inabel Abad Jimenez</p></div>
+        </div>
+        HTML;
+
+        $pairs = ShopifyScraper::extractMetafieldPairs($html);
+
+        $this->assertSame('Light', $pairs['Roast'] ?? null);
+        $this->assertSame('Washed', $pairs['Process'] ?? null);
+        $this->assertSame('Inabel Abad Jimenez', $pairs['Producer'] ?? null);
+        // &bull; decoded to the literal bullet for downstream normalization.
+        $this->assertSame('Golden berry • Jasmine • Pear', $pairs['Notes'] ?? null);
+    }
+
+    public function test_extract_metafield_pairs_returns_empty_when_no_labelled_rows(): void
+    {
+        $html = '<div class="rte"><p>This coffee is part of our seasonal lineup.</p></div>';
+        $this->assertSame([], ShopifyScraper::extractMetafieldPairs($html));
+    }
+
+    public function test_apply_metafield_pairs_fills_notes_roast_process(): void
+    {
+        $coffee = ['name' => 'Peru Geisha', 'description' => 'Seasonal lineup.'];
+
+        $enriched = ShopifyScraper::applyMetafieldPairs($coffee, [
+            'Roast' => 'Light',
+            'Notes' => 'Golden berry • Jasmine • Pear',
+            'Process' => 'Washed',
+        ]);
+
+        // Bullets normalized to commas via CoffeeFieldExtractor (#27).
+        $this->assertSame('Golden berry, Jasmine, Pear', $enriched['tasting_notes']);
+        $this->assertSame('light', $enriched['roast_level']);
+        $this->assertSame('Washed', $enriched['process']);
+    }
+
+    public function test_apply_metafield_pairs_does_not_overwrite_existing_fields(): void
+    {
+        $coffee = [
+            'name' => 'X',
+            'tasting_notes' => 'Cherry, Cocoa',
+            'process' => 'Natural',
+        ];
+
+        $enriched = ShopifyScraper::applyMetafieldPairs($coffee, [
+            'Notes' => 'Should Not Win',
+            'Process' => 'Washed',
+            'Roast' => 'Dark',
+        ]);
+
+        $this->assertSame('Cherry, Cocoa', $enriched['tasting_notes'], 'existing notes win');
+        $this->assertSame('Natural', $enriched['process'], 'existing process wins');
+        $this->assertSame('dark', $enriched['roast_level'], 'still backfills the empty field');
+    }
+
+    public function test_apply_metafield_pairs_ignores_unrecognized_values(): void
+    {
+        $coffee = ['name' => 'X'];
+
+        $enriched = ShopifyScraper::applyMetafieldPairs($coffee, [
+            'Roast' => 'Purple',                 // not a real roast level
+            'Notes' => 'A long prose sentence about how lovely this coffee tastes in the cup',
+        ]);
+
+        $this->assertArrayNotHasKey('roast_level', $enriched, 'unknown roast word is not stored');
+        // Prose (high words-per-token) fails looksLikeTastingNoteList → no notes.
+        $this->assertArrayNotHasKey('tasting_notes', $enriched);
+    }
 }

@@ -2,6 +2,8 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\OriginGazetteer;
+
 /**
  * Cross-platform helpers used by every scraper implementation.
  * Static utility class — no state.
@@ -207,6 +209,49 @@ final class Shared
         // Sampler / tasting flight variants.
         if (preg_match('/\b(sample\s+(?:pack|set|flight)|tasting\s+(?:flight|set))\b/', $t)) return true;
         return false;
+    }
+
+    /**
+     * Find a bag-weight signal inside a product description / excerpt. Strict
+     * by design — only accept matches that resolve to a STANDARD specialty-
+     * coffee bag size (100, 200, 225, 227, 250, 300, 340, 454, 500, 1000,
+     * 2000, 2268 g). The whitelist is what keeps incidental description
+     * numbers (altitude "1600 MASL", a "brew 18g" recipe, harvest years) from
+     * becoming bag weights.
+     *
+     * Used as a LAST-RESORT size fallback by scrapers whose variants don't
+     * carry a size attribute (the common Squarespace single-size shape, where
+     * attributes is `[]` and the weight lives in the excerpt) or whose size
+     * lives only in body_html (Shopify). The whitespace-typo pass recovers
+     * template artifacts like "2  50G" / "250  G" → 250g.
+     */
+    public static function parseBodyGrams(string $body): ?int
+    {
+        if ($body === '') return null;
+        $standard = [100, 200, 225, 227, 250, 300, 340, 454, 500, 1000, 2000, 2268];
+
+        // Pass 1: standard "<digits>[unit]" matches.
+        if (preg_match_all('/\b(\d+(?:[.,]\d+)?)\s*(g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\b/iu', $body, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $candidate = self::parseGrams($m[0]);
+                if ($candidate !== null && in_array($candidate, $standard, true)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        // Pass 2: whitespace-typo recovery for the "2 50G" → 250 pattern.
+        // Only accept when concatenating produces a standard size.
+        if (preg_match_all('/\b(\d)\s+(\d+)\s*(g|gram|grams|kg|oz|lb)\b/iu', $body, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $combined = (int) ($m[1] . $m[2]);
+                if (in_array($combined, $standard, true)) {
+                    return $combined;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -519,8 +564,45 @@ final class Shared
         foreach ($coffeeTagKeywords as $kw) {
             if (in_array($kw, $tagsLower, true)) return true;
         }
+        // 2b) Compound coffee tags. The exact-token check above misses
+        // multi-word tags like "Whole Bean Coffee", "Single Origin Coffee",
+        // "Single-Origin Coffee Beans", "Roasted Coffee Beans" — the whole
+        // tag string never equals a bare keyword, so a roaster that tags its
+        // beans only with a compound phrase AND uses bare-origin product
+        // titles ("Ethiopia Yirgacheffe") lost every coffee. This is the
+        // controlled re-introduction of the substring fallback that c637b63
+        // removed wholesale (it had over-corrected: the goal was to stop
+        // "filter" hitting "smartrrfilter:brewers", but switching to exact
+        // in_array also dropped legitimate compound coffee tags).
+        //
+        // Safe because: (a) every gear/merch/accessory negative check has
+        // already run and returned false above — including the exact
+        // gear-tag tokens and the "espresso/coffee/grinder accessor" tag
+        // patterns; (b) we anchor on word boundaries, so "filter" can't hit
+        // "smartrrfilter:brewers" (no boundary mid-concatenation) the way
+        // the old bare str_contains did. We deliberately match only NOUNS
+        // that, standing alone in a roaster's product tag, unambiguously
+        // mean "this is coffee" — bare brew-method words (filter, espresso,
+        // drip) are excluded because those are exactly the ones that
+        // collided with gear-accessory tags.
+        if (preg_match('/\b(coffees?|decaf|single[\s-]origin|whole[\s-]bean|roasted\s+(?:coffee|beans?))\b/u', $tagStr)) {
+            return true;
+        }
         // 3) title literally mentions coffee/blend/espresso/etc.
         if (preg_match('/\b(coffee|espresso|blend|decaf|single[- ]origin)\b/', $titleLower)) return true;
+
+        // 3b) Origin-named coffee. Specialty roasters routinely title coffees
+        // purely by farm / region / country with no "coffee" word and no
+        // coffee tag — "Bohemia (Washed Gesha), Colombia", "Gatugi, Kenya".
+        // Those fall through to `return false` whenever the product carries a
+        // NON-coffee category (e.g. Squarespace's "Top Tier" quality tier),
+        // because a non-empty tag set suppresses the no-tags default-accept
+        // below. Every gear / tea / merch / cleaner / gift-card negative has
+        // already returned false above, so a recognizable coffee-origin
+        // country in the title is a safe positive — and the downstream
+        // parseGrams() gate still requires a real bag size, so a stray
+        // country word alone can't import junk.
+        if (OriginGazetteer::inferCountry($title) !== '') return true;
 
         // 4) No type, no tags, no title signal — accept by default. The
         // downstream parseGrams() check will drop anything that lacks a

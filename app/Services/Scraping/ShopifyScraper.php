@@ -2,11 +2,31 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\CoffeeFieldExtractor;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 class ShopifyScraper implements RoasterScraper
 {
+    /**
+     * Upper bound on per-product page fetches for metafield enrichment in a
+     * single import. Shopify's /products.json never includes metafields, so
+     * roasters who keep roast/notes/process there (Agro Roasters is the
+     * canonical case) need one extra HTML fetch per affected product. The cap
+     * protects the daily cron from a pathologically large catalog; the
+     * thin-body gate in enrichFromMetafields() already keeps most roasters
+     * from triggering any fetches at all.
+     */
+    private const MAX_ENRICH_FETCHES = 40;
+
+    /**
+     * Below this body_html length we treat the description as "thin" — a strong
+     * signal the roaster parked the real detail (notes/roast/process) in
+     * metafields rather than the product body. Agro's bodies run ~95 chars
+     * ("This coffee is part of our seasonal lineup…").
+     */
+    private const THIN_BODY_CHARS = 240;
+
     public function platformKey(): string
     {
         return 'shopify';
@@ -33,55 +53,152 @@ class ShopifyScraper implements RoasterScraper
         if (!$response->ok()) {
             throw new RuntimeException("Shopify fetch failed: {$response->status()} for {$endpoint}");
         }
-        return $this->normalize($url, $response->json());
+        $coffees = $this->normalize($url, $response->json());
+        return $this->enrichFromMetafields($coffees);
     }
 
     /**
-     * Find a bag-weight signal inside a product description. Strict by
-     * design — only accept matches that resolve to a STANDARD specialty-
-     * coffee bag size (100, 200, 227, 250, 340, 454, 500, 1000, 2268 g,
-     * or the imperial 5lb / 12oz). This rules out incidental numbers in
-     * the description ("Altitude: 1600 MASL", "Notes: ... 200 m³ ...")
-     * that would otherwise produce wildly wrong sizes.
+     * Best-effort recovery of detail fields that live in Shopify metafields
+     * (absent from /products.json). For each coffee whose body_html is thin AND
+     * carries no extractable tasting notes — the "details are in metafields"
+     * signal — fetch the product page once and parse the rendered
+     * "<strong>Label: </strong><span class="metafield-…">value</span>" rows,
+     * then feed those through the same CoffeeFieldExtractor the importer uses so
+     * normalization (roast canonicalization, bullet-note splitting, process
+     * mapping) stays in one place.
      *
-     * The collapsed-whitespace input handles Botany Rd's "2  50G" and
-     * "250  G" template artifacts as "2 50G" / "250 G", which parseGrams
-     * then resolves to 250g.
+     * Failures are swallowed per-product: enrichment must never turn a working
+     * import into a failed one. Bounded by MAX_ENRICH_FETCHES.
+     *
+     * @param  array<int, array<string, mixed>>  $coffees
+     * @return array<int, array<string, mixed>>
+     */
+    private function enrichFromMetafields(array $coffees): array
+    {
+        $fetched = 0;
+
+        foreach ($coffees as $i => $coffee) {
+            if ($fetched >= self::MAX_ENRICH_FETCHES) break;
+
+            $productUrl = $coffee['product_url'] ?? null;
+            if (!$productUrl) continue;
+
+            $description = (string) ($coffee['description'] ?? '');
+            // Gate: only spend a request when the body is thin AND gave us no
+            // notes. A rich body_html almost always carries the rest inline, so
+            // this keeps non-metafield roasters from triggering any fetches.
+            if (mb_strlen(trim($description)) >= self::THIN_BODY_CHARS) continue;
+            if (CoffeeFieldExtractor::extractTastingNotes($description) !== null) continue;
+
+            try {
+                $resp = Http::timeout(12)->withOptions(Shared::clientOptions())->get($productUrl);
+                if (!$resp->ok()) continue;
+            } catch (\Throwable) {
+                continue;
+            }
+            $fetched++;
+
+            $pairs = self::extractMetafieldPairs($resp->body());
+            if (empty($pairs)) continue;
+
+            $coffees[$i] = self::applyMetafieldPairs($coffee, $pairs);
+        }
+
+        return $coffees;
+    }
+
+    /**
+     * Pull "Label: value" detail rows out of a rendered Shopify product page.
+     * Targets the common metafield rendering where the label is bolded and the
+     * value follows (optionally wrapped in a metafield span):
+     *   <strong>Roast: </strong><span class="metafield-…">Light</span>
+     * Returns a label => value map (first occurrence wins). Pure / no HTTP, so
+     * it's unit-tested directly against captured HTML.
+     *
+     * @return array<string, string>
+     */
+    public static function extractMetafieldPairs(string $html): array
+    {
+        $pairs = [];
+        if (preg_match_all(
+            '/<strong>\s*([A-Za-z][A-Za-z \/]{1,24}?)\s*:\s*<\/strong>\s*(?:<span[^>]*>)?\s*([^<]{1,160})/u',
+            $html,
+            $matches,
+            PREG_SET_ORDER
+        )) {
+            foreach ($matches as $m) {
+                $label = trim($m[1]);
+                $value = trim(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5));
+                if ($label !== '' && $value !== '' && !isset($pairs[$label])) {
+                    $pairs[$label] = $value;
+                }
+            }
+        }
+        return $pairs;
+    }
+
+    /**
+     * Fold parsed metafield pairs onto a coffee row, filling ONLY fields that
+     * are still empty (the importer treats explicit row keys as authoritative
+     * over its own description-based extraction). Each value is routed through
+     * the matching CoffeeFieldExtractor so roast/process/notes come out in the
+     * same canonical shape as the body_html path.
+     *
+     * @param  array<string, mixed>  $coffee
+     * @param  array<string, string>  $pairs
+     * @return array<string, mixed>
+     */
+    public static function applyMetafieldPairs(array $coffee, array $pairs): array
+    {
+        // Case-insensitive label lookup.
+        $byLabel = [];
+        foreach ($pairs as $label => $value) {
+            $byLabel[strtolower($label)] = $value;
+        }
+        $pick = function (array $keys) use ($byLabel): string {
+            foreach ($keys as $k) {
+                if (!empty($byLabel[$k])) return $byLabel[$k];
+            }
+            return '';
+        };
+
+        if (empty($coffee['tasting_notes'])) {
+            $raw = $pick(['tasting notes', 'notes', 'flavour notes', 'flavor notes', 'cup notes']);
+            // Re-attach a "Notes:" label so extractTastingNotes runs its full
+            // gate (looksLikeTastingNoteList) + bullet-separator normalization.
+            $notes = $raw !== '' ? CoffeeFieldExtractor::extractTastingNotes('Notes: ' . $raw) : null;
+            if ($notes) $coffee['tasting_notes'] = $notes;
+        }
+
+        if (empty($coffee['roast_level'])) {
+            $raw = $pick(['roast', 'roast level', 'roast profile']);
+            $roast = $raw !== '' ? CoffeeFieldExtractor::extractRoastLevel('Roast: ' . $raw) : null;
+            if ($roast) $coffee['roast_level'] = $roast;
+        }
+
+        if (empty($coffee['process'])) {
+            $raw = $pick(['process', 'processing', 'process method']);
+            $process = $raw !== '' ? CoffeeFieldExtractor::extractProcess($raw) : null;
+            if ($process) $coffee['process'] = $process;
+        }
+
+        if (empty($coffee['varietal'])) {
+            $raw = $pick(['varietal', 'variety', 'varieties', 'cultivar']);
+            $varietal = $raw !== '' ? CoffeeFieldExtractor::extractVarietal($raw) : null;
+            if ($varietal) $coffee['varietal'] = $varietal;
+        }
+
+        return $coffee;
+    }
+
+    /**
+     * Find a bag-weight signal inside a product description. Delegates to the
+     * shared standard-size-whitelist parser (Shared::parseBodyGrams) so the
+     * Shopify body_html path and the Squarespace excerpt path stay in lockstep.
      */
     private function parseBodyGrams(string $body): ?int
     {
-        if ($body === '') return null;
-        // Standard specialty-coffee bag sizes (Canadian + imperial). The
-        // whitelist is what keeps incidental description numbers (altitude,
-        // brew recipes, harvest years) from becoming bag weights.
-        // 225g = some shops' "8oz" rounding; 227g = canonical 1/2 lb.
-        $standard = [100, 200, 225, 227, 250, 300, 340, 454, 500, 1000, 2000, 2268];
-
-        // Pass 1: standard "<digits>[unit]" matches.
-        if (preg_match_all('/\b(\d+(?:[.,]\d+)?)\s*(g|gram|grams|kg|kilo|kilos|oz|ounce|ounces|lb|lbs|pound|pounds)\b/iu', $body, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $m) {
-                $candidate = Shared::parseGrams($m[0]);
-                if ($candidate !== null && in_array($candidate, $standard, true)) {
-                    return $candidate;
-                }
-            }
-        }
-
-        // Pass 2: whitespace-typo recovery for the "2 50G" → 250 pattern
-        // seen on Botany Rd (template artifact splits the leading digit
-        // from the rest). Only accept when concatenating produces a
-        // standard size — without that guard, "30 g" → 30 wouldn't
-        // help, and "3 12g" → 312 wouldn't either.
-        if (preg_match_all('/\b(\d)\s+(\d+)\s*(g|gram|grams|kg|oz|lb)\b/iu', $body, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $m) {
-                $combined = (int) ($m[1] . $m[2]);
-                if (in_array($combined, $standard, true)) {
-                    return $combined;
-                }
-            }
-        }
-
-        return null;
+        return Shared::parseBodyGrams($body);
     }
 
     /** Filter Shopify products to coffee bags and normalize to the RoasterScraper output shape. */

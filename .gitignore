@@ -22,3 +22,6 @@ yarn-error.log
 
 # CA bundle for Windows PHP — refresh from https://curl.se/ca/cacert.pem
 /storage/cacert.pem
+
+# Scratch diagnostic scripts (one-off audits / probes)
+/tmp

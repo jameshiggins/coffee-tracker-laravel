@@ -39,6 +39,14 @@ class OriginGazetteerTest extends TestCase
             ['Ethiopia Yirgacheffe', 'Ethiopia'],
             ['Brazil Santos', 'Brazil'],
 
+            // Precedence: an explicit country name in the title beats a SHORT,
+            // ambiguous region alias that also happens to be a substring.
+            // "Volcan Azul" is a famous Costa Rica farm, but "volcan" is also a
+            // Panama region alias — the longer "costa rica" must win.
+            ['Volcan Azul (Natural Anaerobic SL28), Costa Rica', 'Costa Rica'],
+            ['Java City Reserve, Colombia', 'Colombia'],
+            ['Kona Style, Guatemala', 'Guatemala'],
+
             // Junk / blends with no signal return empty string.
             ['House Blend', ''],
             ['Mystery Box', ''],

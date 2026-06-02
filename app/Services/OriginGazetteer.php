@@ -22,10 +22,26 @@ final class OriginGazetteer
     public static function inferCountry(string $title): string
     {
         $haystack = strtolower($title);
+
+        // Most-specific (longest needle) wins, not first-match. A coffee titled
+        // "Volcan Azul (Natural SL28), Costa Rica" must resolve to Costa Rica,
+        // not Panama — the short region alias "volcan" is a substring, but the
+        // explicit country name "costa rica" is longer and should take
+        // precedence. Longest-match also protects famously-ambiguous short
+        // needles ("java", "kona", "guji") from beating an explicit country.
+        // On a length tie, aliases() order breaks it (declared first wins).
+        $best = '';
+        $bestLen = 0;
         foreach (self::aliases() as $needle => $country) {
-            if (str_contains($haystack, $needle)) return $country;
+            if (str_contains($haystack, $needle)) {
+                $len = mb_strlen($needle);
+                if ($len > $bestLen) {
+                    $best = $country;
+                    $bestLen = $len;
+                }
+            }
         }
-        return '';
+        return $best;
     }
 
     /**
@@ -147,6 +163,21 @@ final class OriginGazetteer
             'ecuador'     => 'Ecuador',
             'jamaica'     => 'Jamaica',
             'india'       => 'India',
+            // Distinctive multi-word / long country names — safe as bare
+            // substrings (no short-prefix collisions) and common enough in
+            // specialty catalogs to be worth resolving. PNG in particular is
+            // a frequent origin some roasters title by country only.
+            'papua new guinea' => 'Papua New Guinea',
+            'papua'       => 'Papua New Guinea',
+            'democratic republic of congo' => 'DR Congo',
+            'dr congo'    => 'DR Congo',
+            'vietnam'     => 'Vietnam',
+            'thailand'    => 'Thailand',
+            'myanmar'     => 'Myanmar',
+            'philippines' => 'Philippines',
+            'timor-leste' => 'Timor-Leste',
+            'timor leste' => 'Timor-Leste',
+            'east timor'  => 'Timor-Leste',
         ];
     }
 }

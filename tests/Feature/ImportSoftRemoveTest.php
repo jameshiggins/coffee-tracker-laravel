@@ -108,15 +108,19 @@ class ImportSoftRemoveTest extends TestCase
     {
         $importer = $this->importer();
 
-        // Use Http::fakeSequence so each call gets a fresh response.
-        // The first import's products.json probe + fetch consume the same
-        // response (probe = limit=1, fetch = limit=250); we set per-call.
-        Http::fakeSequence()
-            // probe + fetch for first import (both hit /products.json*)
-            ->push($this->shopifyResponse([$this->product(101, 'Yirg'), $this->product(102, 'House Blend')]), 200)
-            ->push($this->shopifyResponse([$this->product(101, 'Yirg'), $this->product(102, 'House Blend')]), 200)
-            // the second import already has cached platform=shopify, so only one fetch call
-            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200);
+        // Scope the sequence to /products.json so metafield-enrichment's
+        // per-product page fetches (the product() helper uses an empty
+        // body_html, which is "thin" and triggers an enrichment fetch) draw
+        // from the '*' fallback instead of stealing products.json responses.
+        // products.json draws: import1 probe(limit=1) + fetch(limit=250),
+        // then import2 fetch only (platform is cached so no re-probe).
+        Http::fake([
+            '*/products.json*' => Http::sequence()
+                ->push($this->shopifyResponse([$this->product(101, 'Yirg'), $this->product(102, 'House Blend')]), 200)
+                ->push($this->shopifyResponse([$this->product(101, 'Yirg'), $this->product(102, 'House Blend')]), 200)
+                ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200),
+            '*' => Http::response('', 200), // product pages → enrichment no-op
+        ]);
 
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
@@ -136,11 +140,17 @@ class ImportSoftRemoveTest extends TestCase
         // the fetch is non-empty — that bypasses the empty-fetch safety
         // check and lets the soft-remove logic actually fire on coffee 101.
         // Then the third run brings 101 back and it should un-remove.
-        Http::fakeSequence()
-            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // probe
-            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // fetch
-            ->push($this->shopifyResponse([$this->product(102, 'Other')]), 200) // 101 absent (102 takes its place) → 101 soft-removes
-            ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200); // 101 returns
+        // Scope to /products.json so enrichment's product-page fetches use
+        // the '*' fallback. products.json draws: import1 probe+fetch, then
+        // import2 fetch and import3 fetch (platform cached → no re-probe).
+        Http::fake([
+            '*/products.json*' => Http::sequence()
+                ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // probe
+                ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200)  // fetch
+                ->push($this->shopifyResponse([$this->product(102, 'Other')]), 200) // 101 absent (102 takes its place) → 101 soft-removes
+                ->push($this->shopifyResponse([$this->product(101, 'Yirg')]), 200), // 101 returns
+            '*' => Http::response('', 200), // product pages → enrichment no-op
+        ]);
 
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
@@ -201,19 +211,24 @@ class ImportSoftRemoveTest extends TestCase
         // shouldn't wipe a roaster's entire catalog.
         $importer = $this->importer();
 
-        // Seed with 2 coffees from a healthy first import.
-        Http::fakeSequence()
-            ->push($this->shopifyResponse([
-                $this->product(101, 'Yirg'),
-                $this->product(102, 'House Blend'),
-            ]), 200)
-            ->push($this->shopifyResponse([
-                $this->product(101, 'Yirg'),
-                $this->product(102, 'House Blend'),
-            ]), 200)
-            // Second import: scraper returns empty — site rate-limited
-            // or transient platform-shape hiccup. Must NOT wipe the catalog.
-            ->push($this->shopifyResponse([]), 200);
+        // Seed with 2 coffees from a healthy first import. Scope to
+        // /products.json so enrichment's product-page fetches use the '*'
+        // fallback. products.json draws: import1 probe+fetch, import2 fetch.
+        Http::fake([
+            '*/products.json*' => Http::sequence()
+                ->push($this->shopifyResponse([
+                    $this->product(101, 'Yirg'),
+                    $this->product(102, 'House Blend'),
+                ]), 200)
+                ->push($this->shopifyResponse([
+                    $this->product(101, 'Yirg'),
+                    $this->product(102, 'House Blend'),
+                ]), 200)
+                // Second import: scraper returns empty — site rate-limited
+                // or transient platform-shape hiccup. Must NOT wipe the catalog.
+                ->push($this->shopifyResponse([]), 200),
+            '*' => Http::response('', 200), // product pages → enrichment no-op
+        ]);
 
         $importer->import('https://example.com', name: 'Example', city: 'Vancouver');
         $this->assertSame(2, Coffee::available()->count(), 'first import seeds 2 coffees');

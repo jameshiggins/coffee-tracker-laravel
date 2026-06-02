@@ -86,12 +86,36 @@ class RoasterImporter
             $scraper = $this->registry->detect($website, $roaster->platform);
             $coffees = $scraper->fetch($website);
         } catch (\Throwable $e) {
-            $roaster->forceFill([
-                'last_imported_at' => Carbon::now(),
-                'last_import_status' => 'error',
-                'last_import_error' => $e->getMessage(),
-            ])->save();
-            throw $e;
+            // Stale-cache recovery: a CACHED platform that now hard-errors
+            // (e.g. Shopify /products.json 404 after the roaster migrated to
+            // Squarespace) is a strong signal the cache is wrong. Try a fresh
+            // re-detect before recording failure; adopt it only if a
+            // different, more-specific platform actually returns coffees.
+            $recovered = $roaster->platform
+                ? $this->attemptRedetect($roaster, $website, $roaster->platform)
+                : null;
+            if ($recovered === null) {
+                $roaster->forceFill([
+                    'last_imported_at' => Carbon::now(),
+                    'last_import_status' => 'error',
+                    'last_import_error' => $e->getMessage(),
+                ])->save();
+                throw $e;
+            }
+            [$scraper, $coffees] = $recovered;
+        }
+
+        // Self-healing platform re-detection: a cached platform that fetched
+        // EMPTY (no error, just nothing) can also be stale — Prototype was
+        // cached as 'generic' but is really Squarespace, so every import
+        // returned zero coffees. Re-probe fresh and switch if a more-specific
+        // platform yields a real catalog. Skipped on first import (no cache),
+        // where detect() already probed fresh.
+        if (empty($coffees) && $roaster->platform) {
+            $recovered = $this->attemptRedetect($roaster, $website, $roaster->platform);
+            if ($recovered !== null) {
+                [$scraper, $coffees] = $recovered;
+            }
         }
 
         // Persist the detected platform on first successful fetch.
@@ -152,6 +176,48 @@ class RoasterImporter
         ])->save();
 
         return $roaster->fresh('coffees.variants');
+    }
+
+    /**
+     * Re-probe the platform from scratch and adopt it ONLY if a different,
+     * more-specific platform actually returns a non-empty catalog. Used to
+     * self-heal a stale roasters.platform cache (e.g. a roaster migrated
+     * Shopify→Squarespace, or was seeded as 'generic' before a dedicated
+     * scraper could handle it).
+     *
+     * Returns [$scraper, $coffees] on a successful heal, or null to leave the
+     * cached platform untouched. We deliberately refuse to heal toward
+     * 'generic': GenericHtmlScraper::canHandle() always returns true, so a
+     * fresh detect falling through to 'generic' just means "no dedicated
+     * platform matched right now" — adopting it during a transient
+     * Shopify/Woo outage would wrongly erase a good cached platform.
+     *
+     * @return array{0: \App\Services\Scraping\RoasterScraper, 1: array}|null
+     */
+    private function attemptRedetect(Roaster $roaster, string $website, string $currentPlatform): ?array
+    {
+        try {
+            $fresh = $this->registry->detect($website, null);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $freshKey = $fresh->platformKey();
+        if ($freshKey === $currentPlatform || $freshKey === 'generic') {
+            return null;
+        }
+
+        try {
+            $coffees = $fresh->fetch($website);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (empty($coffees)) {
+            return null;
+        }
+
+        $roaster->platform = $freshKey;
+        return [$fresh, $coffees];
     }
 
     /**
@@ -612,7 +678,11 @@ class RoasterImporter
             // Belt-and-braces: cleanDescription already sanitized $description,
             // but the regex slice could still produce a partial multi-byte
             // sequence at the boundaries.
-            return trim(self::sanitizeUtf8($m[1]));
+            $raw = trim(self::sanitizeUtf8($m[1]));
+            // Roasters delimit notes with bullets/pipes/slashes ("Golden
+            // berry • Jasmine • Pear"); normalize to the comma form the rest
+            // of the system expects.
+            return CoffeeFieldExtractor::normalizeNoteSeparators($raw);
         }
         return null;
     }

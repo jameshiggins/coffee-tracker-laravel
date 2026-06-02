@@ -100,6 +100,43 @@ class RoasterImportTest extends TestCase
         $this->assertSame(0, $roaster->coffees()->count());
     }
 
+    public function test_import_recovers_metafield_notes_roast_process_from_product_page(): void
+    {
+        // A3a (Agro Roasters): /products.json carries only a thin body_html
+        // ("seasonal lineup…") — roast/notes/process live in metafields, which
+        // the API omits but the product page renders as bolded label rows. The
+        // importer should fetch the page, recover those fields, and persist them.
+        $productsJson = ['products' => [[
+            'id' => 555, 'title' => 'Peru Geisha, Inabel Abad Jimenez', 'product_type' => 'Coffee',
+            'tags' => ['Single Origin'], 'handle' => 'peru-geisha',
+            'body_html' => '<p>This coffee is part of our seasonal lineup and available in small batches.</p>',
+            'variants' => [['id' => 5551, 'title' => '340g', 'price' => '25.00', 'available' => true]],
+        ]]];
+
+        $pageHtml = <<<'HTML'
+        <html><head><meta name="description" content="Golden berry • Jasmine • Pear"></head>
+        <body><div class="product__info">
+          <p><strong>Roast: </strong><span class="metafield-single_line_text_field">Light</span></p>
+          <p><strong>Notes: </strong><span class="metafield-multi_line_text_field">Golden berry • Jasmine • Pear</span></p>
+          <p><strong>Process: </strong><span class="metafield-single_line_text_field">Washed</span></p>
+        </div></body></html>
+        HTML;
+
+        Http::fake([
+            'agro.test/products.json*' => Http::response($productsJson, 200),
+            'agro.test/products/peru-geisha*' => Http::response($pageHtml, 200),
+            '*' => Http::response('', 200), // about/favicon/shipping best-effort
+        ]);
+
+        $roaster = (new RoasterImporter())->import('https://agro.test', name: 'Agro', city: 'Calgary');
+
+        $coffee = $roaster->coffees()->where('name', 'like', 'Peru Geisha%')->first();
+        $this->assertNotNull($coffee);
+        $this->assertSame('Golden berry, Jasmine, Pear', $coffee->tasting_notes, 'bullet notes recovered + normalized');
+        $this->assertSame('light', $coffee->roast_level);
+        $this->assertSame('Washed', $coffee->process);
+    }
+
     public function test_failed_import_records_error_status_and_rethrows(): void
     {
         // All scrapers fail to handle a network error — Generic-HTML's homepage

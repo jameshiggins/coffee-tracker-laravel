@@ -165,4 +165,50 @@ class CoffeeFieldExtractorTest extends TestCase
             )
         );
     }
+
+    public function test_extract_tasting_notes_normalizes_bullet_separators(): void
+    {
+        // Agro-style: roasters write notes bullet-delimited in the body
+        // ("Notes: Golden berry • Jasmine • Pear"). These were previously
+        // rejected (one 4-word token, avgWords > 3.5) and never stored.
+        $this->assertSame(
+            'Golden berry, Jasmine, Pear',
+            CoffeeFieldExtractor::extractTastingNotes('Notes: Golden berry • Jasmine • Pear')
+        );
+        $this->assertSame(
+            'Golden berry, Jasmine, Pear',
+            CoffeeFieldExtractor::extractTastingNotes(
+                'This coffee is part of our seasonal lineup. Notes: Golden berry • Jasmine • Pear'
+            )
+        );
+    }
+
+    public function test_extract_tasting_notes_handles_slash_separators(): void
+    {
+        // Slashes are allowed inside the capture (pipes are not — those mark a
+        // field boundary), so a slash-delimited list normalizes to commas.
+        $this->assertSame(
+            'cherry, cocoa, almond',
+            CoffeeFieldExtractor::extractTastingNotes('Tasting notes: cherry / cocoa / almond')
+        );
+    }
+
+    public function test_looks_like_tasting_note_list_accepts_bullet_and_slash_lists(): void
+    {
+        $this->assertTrue(CoffeeFieldExtractor::looksLikeTastingNoteList('Golden berry • Jasmine • Pear'));
+        $this->assertTrue(CoffeeFieldExtractor::looksLikeTastingNoteList('cherry / cocoa / almond'));
+        // A genuine run-on sentence (one long token) is still rejected.
+        $this->assertFalse(CoffeeFieldExtractor::looksLikeTastingNoteList('a smooth balanced cup for every morning of the week'));
+    }
+
+    public function test_normalize_note_separators(): void
+    {
+        $this->assertSame('Golden berry, Jasmine, Pear', CoffeeFieldExtractor::normalizeNoteSeparators('Golden berry • Jasmine • Pear'));
+        $this->assertSame('cherry, cocoa, almond', CoffeeFieldExtractor::normalizeNoteSeparators('cherry | cocoa | almond'));
+        $this->assertSame('cherry, cocoa, almond', CoffeeFieldExtractor::normalizeNoteSeparators('cherry / cocoa / almond'));
+        // Already comma-separated passes through unchanged.
+        $this->assertSame('jasmine, bergamot, honey', CoffeeFieldExtractor::normalizeNoteSeparators('jasmine, bergamot, honey'));
+        // Mixed / duplicated separators collapse to a single ", ".
+        $this->assertSame('a, b, c', CoffeeFieldExtractor::normalizeNoteSeparators('a • b, c'));
+    }
 }

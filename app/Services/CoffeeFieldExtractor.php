@@ -270,7 +270,7 @@ class CoffeeFieldExtractor
                 $raw = trim($m[1]);
                 $raw = preg_replace('/\b(?:and\s+(?:a|the)\s+|with\s+)/i', '', $raw);
                 if (self::looksLikeTastingNoteList($raw)) {
-                    return $raw;
+                    return self::normalizeNoteSeparators($raw);
                 }
             }
         }
@@ -304,15 +304,34 @@ class CoffeeFieldExtractor
             return false;
         }
 
-        // Reject if average token (split by comma) is too wordy. Real notes
-        // are 1-3 words each: "milk chocolate", "stone fruit", "candied lime".
-        $tokens = preg_split('/\s*,\s*/', $r);
+        // Reject if average token is too wordy. Real notes are 1-3 words
+        // each: "milk chocolate", "stone fruit", "candied lime". Split on the
+        // full separator set roasters actually use — commas, bullets (• ·),
+        // pipes, and slashes — not commas alone, or a bullet-delimited list
+        // like "Golden berry • Jasmine • Pear" counts as one 4-word token and
+        // is wrongly rejected.
+        $tokens = preg_split('/\s*[,•·|\/]\s*/u', $r);
+        $tokens = array_values(array_filter($tokens, fn ($t) => trim($t) !== ''));
         if (count($tokens) > 0) {
             $avgWords = $wordCount / count($tokens);
             if ($avgWords > 3.5) return false;
         }
 
         return true;
+    }
+
+    /**
+     * Normalize a tasting-note list to a clean comma-separated string.
+     * Roasters delimit notes with bullets ("Golden berry • Jasmine • Pear"),
+     * pipes, or slashes; the rest of the system (and the DB) expects commas.
+     * Collapses any run of separator characters into a single ", ".
+     */
+    public static function normalizeNoteSeparators(string $raw): string
+    {
+        $s = preg_replace('/\s*[•·|\/]+\s*/u', ', ', $raw);
+        $s = preg_replace('/\s*,\s*/', ', ', $s);
+        $s = preg_replace('/(?:,\s*)+/', ', ', $s);
+        return trim($s, " ,\t\n\r");
     }
 
     private static function parseInt(string $raw): int

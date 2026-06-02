@@ -316,6 +316,56 @@ class SharedTest extends TestCase
         $this->assertFalse(Shared::looksLikeCoffee('Africa-Print Tee', 'Apparel', ['Africa']));
     }
 
+    // ── looksLikeCoffee: compound coffee tags (c637b63 regression) ────────
+    //
+    // c637b63 tightened the positive coffee-tag match from substring to
+    // exact in_array() to stop "filter" matching "smartrrfilter:brewers".
+    // It over-corrected: a roaster that tags beans with a COMPOUND phrase
+    // ("Whole Bean Coffee", "Single Origin Coffee", "Single-Origin Coffee
+    // Beans") AND uses bare-origin product titles ("Ethiopia Yirgacheffe",
+    // no "coffee"/"blend" in the name, no coffee product_type) suddenly
+    // lost every product — the whole-tag string equals none of the bare
+    // keywords. This is the single biggest driver of "bean counts look too
+    // low". The fix restores a word-boundary noun match while keeping the
+    // gear-tag exclusions that run first.
+
+    /** @return array<string, array{0:string,1:string,2:array<int,string>}> */
+    public static function compoundCoffeeTagCases(): array
+    {
+        return [
+            'whole bean coffee tag'        => ['Ethiopia Yirgacheffe', '', ['Whole Bean Coffee']],
+            'single origin coffee tag'     => ['Colombia Huila', '', ['Single Origin Coffee']],
+            'single-origin coffee beans'   => ['Guatemala Antigua', '', ['Single-Origin Coffee Beans']],
+            'roasted coffee tag'           => ['Kenya Nyeri AA', '', ['Roasted Coffee']],
+            'roasted coffee beans tag'     => ['Peru Cajamarca', '', ['Roasted Coffee Beans']],
+            'decaf coffee tag'             => ['Brazil Cerrado', '', ['Decaf Coffee']],
+            'compound among region tags'   => ['Sumatra Mandheling', '', ['Indonesia', 'Whole Bean Coffee']],
+        ];
+    }
+
+    /** @param array<int,string> $tags */
+    #[DataProvider('compoundCoffeeTagCases')]
+    public function test_looks_like_coffee_accepts_compound_coffee_tags(string $title, string $type, array $tags): void
+    {
+        $this->assertTrue(
+            Shared::looksLikeCoffee($title, $type, $tags),
+            "Expected compound coffee tag to be accepted: \"{$title}\" tags=" . implode(',', $tags)
+        );
+    }
+
+    public function test_compound_coffee_noun_match_does_not_override_gear(): void
+    {
+        // Word-boundary noun match must NOT resurrect gear. These all have a
+        // "coffee"-containing tag but are rejected earlier: a gear
+        // product_type (Brewer) or the "coffee accessor" gear-tag pattern,
+        // both of which run before the positive noun fallback.
+        $this->assertFalse(Shared::looksLikeCoffee('Munieq Tetra Dripper', 'Brewer', ['Coffee Brewing Equipment']));
+        $this->assertFalse(Shared::looksLikeCoffee('Grindz Cleaner', '', ['Coffee Accessories']));
+        // "filter" inside "smartrrfilter:brewers" is not a word boundary, so
+        // the noun fallback can't match it (and there's no coffee noun here).
+        $this->assertFalse(Shared::looksLikeCoffee('Tetra Dripper Stainless', 'Brewer', ['SmartrrFilter:Brewers']));
+    }
+
     // ── looksLikeCoffee: "chocolate" as flavor descriptor vs product ──────
     //
     // The bare 'chocolates?' title-level reject was too broad — it nuked
@@ -374,6 +424,55 @@ class SharedTest extends TestCase
         // Drinking chocolate / hot cocoa — beverage powders.
         $this->assertFalse(Shared::looksLikeCoffee('Drinking Chocolate', '', []));
         $this->assertFalse(Shared::looksLikeCoffee('Hot Cocoa Mix', '', []));
+    }
+
+    // ── looksLikeCoffee: origin-named coffees (Prototype / Squarespace) ───
+    //
+    // Specialty roasters routinely title coffees purely by farm / region /
+    // country with no "coffee" word and no coffee tag. When such a product
+    // ALSO carries a non-coffee category (Squarespace quality tiers like
+    // "Top Tier"), the no-tags default-accept is suppressed and the coffee
+    // used to be silently dropped. An origin-country signal rescues them —
+    // Prototype was showing ZERO coffees because of exactly this.
+
+    public function test_looks_like_coffee_accepts_origin_named_coffee_with_noncoffee_category(): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee('Bohemia (Washed Gesha), Colombia', '', ['Top Tier']));
+        $this->assertTrue(Shared::looksLikeCoffee('Gatugi, Kenya', '', ['Top Tier']));
+        $this->assertTrue(Shared::looksLikeCoffee('La Colonia, Mexico', '', ['Single Origin']));
+        // PNG newly added to the gazetteer — a frequent country-only title.
+        $this->assertTrue(Shared::looksLikeCoffee('Kagamugu (Natural), Papua New Guinea', '', ['Top Tier']));
+    }
+
+    public function test_origin_signal_does_not_override_gear_or_merch_negatives(): void
+    {
+        // The origin signal runs AFTER every negative check, so a country word
+        // in a gear / merch title can't resurrect it.
+        $this->assertFalse(Shared::looksLikeCoffee('Colombia Coffee Mug', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Ethiopia Map Tote Bag', '', []));
+        $this->assertFalse(Shared::looksLikeCoffee('Kenya Roaster Hoodie', 'Apparel', []));
+        // No origin word + a non-coffee category → still false. The signal
+        // adds recall; it does not blanket-accept anything with a category.
+        $this->assertFalse(Shared::looksLikeCoffee('Mystery Item', '', ['Top Tier']));
+    }
+
+    // ── parseBodyGrams (shared description size fallback) ──────────────────
+
+    public function test_parse_body_grams_accepts_standard_sizes(): void
+    {
+        $this->assertSame(100, Shared::parseBodyGrams('100g. Tasting Notes: Earl Grey, Pear.'));
+        $this->assertSame(250, Shared::parseBodyGrams('250g. Tasting Notes: Blueberry.'));
+        $this->assertSame(340, Shared::parseBodyGrams('Bag size: 340 g.'));
+        $this->assertSame(1000, Shared::parseBodyGrams('Available in 1kg.'));
+    }
+
+    public function test_parse_body_grams_rejects_incidental_numbers(): void
+    {
+        // Altitude / brew ratio / steep time must not become a bag weight —
+        // the standard-size whitelist is the guard.
+        $this->assertNull(Shared::parseBodyGrams('Altitude: 1600 MASL. Brew 18g in, 36g out.'));
+        $this->assertNull(Shared::parseBodyGrams('Grown at 1,800 m. Steep for 4 minutes.'));
+        $this->assertNull(Shared::parseBodyGrams(''));
     }
 
     // ── sanitizeUtf8 ──────────────────────────────────────────────────────

@@ -103,6 +103,16 @@ class SquarespaceScraper implements RoasterScraper
             if (!empty($sc['isSubscribable']) && empty($sc['variants'])) continue;
             if (!Shared::looksLikeCoffee($title, '', $combinedTags)) continue;
 
+            // Description first — Squarespace single-size coffees frequently
+            // carry NO size attribute on the variant (attributes: []) and put
+            // the weight in the excerpt instead ("100g. Tasting Notes: …").
+            // Parse it once here so it can serve as the variant grams fallback.
+            $description = (string) ($p['excerpt'] ?? '') ?: (string) ($p['body'] ?? '');
+            // Replace tags with space before strip_tags so adjacent block
+            // elements don't merge ("</p><p>" → "OriginProcess").
+            $description = trim(strip_tags(preg_replace('/<[^>]+>/', ' ', $description)));
+            $descGrams = Shared::parseBodyGrams($description);
+
             $rawVariants = [];
             foreach ($sc['variants'] ?? [] as $v) {
                 $attrs = $v['attributes'] ?? [];
@@ -117,7 +127,14 @@ class SquarespaceScraper implements RoasterScraper
                 if ($bagSizeStr === '' && is_array($attrs)) {
                     $bagSizeStr = implode(' ', array_map('strval', $attrs));
                 }
-                $grams = Shared::parseGrams($bagSizeStr) ?? Shared::parseGrams($title);
+                // Size resolution order: variant attribute → title → a standard
+                // bag size mentioned in the description. The last fallback
+                // rescues single-size coffees with attribute-less variants (the
+                // common Squarespace shape) without inventing a weight —
+                // parseBodyGrams only accepts standard sizes.
+                $grams = Shared::parseGrams($bagSizeStr)
+                    ?? Shared::parseGrams($title)
+                    ?? $descGrams;
                 if ($grams === null) continue;
 
                 $price = (float) ($v['priceMoney']['value'] ?? $v['price'] ?? 0);
@@ -140,10 +157,6 @@ class SquarespaceScraper implements RoasterScraper
 
             $imageUrl = $p['assetUrl'] ?? null;
             $productUrl = !empty($p['fullUrl']) ? $origin . $p['fullUrl'] : null;
-            $description = (string) ($p['excerpt'] ?? '') ?: (string) ($p['body'] ?? '');
-            // Replace tags with space before strip_tags so adjacent block
-            // elements don't merge ("</p><p>" → "OriginProcess").
-            $description = trim(strip_tags(preg_replace('/<[^>]+>/', ' ', $description)));
 
             $out[] = [
                 'name' => $title,
