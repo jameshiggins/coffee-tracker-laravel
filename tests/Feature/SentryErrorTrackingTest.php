@@ -27,8 +27,11 @@ class SentryErrorTrackingTest extends TestCase
 
     public function test_no_dsn_is_configured_in_the_test_environment(): void
     {
-        // The suite must never ship events to a real project.
-        $this->assertNull(config('sentry.dsn'));
+        // The suite must never ship events to a real project. "No DSN" is what
+        // matters, not its exact falsy shape: locally the key is absent so
+        // env() yields null, while CI copies .env.example (SENTRY_LARAVEL_DSN=)
+        // so it yields ''. Sentry treats both as "disabled" — assert emptiness.
+        $this->assertEmpty(config('sentry.dsn'));
     }
 
     public function test_reporting_an_exception_is_a_safe_noop_without_a_dsn(): void
