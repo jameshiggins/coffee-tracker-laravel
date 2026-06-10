@@ -11,9 +11,9 @@ use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// Public auth
-Route::post('/auth/register', [AuthController::class, 'register']);
-Route::post('/auth/login', [AuthController::class, 'login']);
+// Public auth — brute-force throttled (login keyed on email+IP, register per-IP).
+Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:register');
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
 // Q15: password reset (always returns 200 to prevent account enumeration).
 Route::post('/auth/forgot-password', [PasswordResetController::class, 'sendLink'])

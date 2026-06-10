@@ -26,7 +26,7 @@ class AuthController extends Controller
 
         $user = User::create([
             'name'         => $data['name'],
-            'display_name' => $data['display_name'] ?? $this->fallbackDisplayName($data['name']),
+            'display_name' => $data['display_name'] ?? User::generateDisplayName($data['name']),
             'email'        => $data['email'],
             'password'     => Hash::make($data['password']),
         ]);
@@ -71,24 +71,6 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()->delete();
         return response()->json(null, 204);
-    }
-
-    /**
-     * Generate a URL-safe display_name from a real name when the user
-     * doesn't pick one. Slugifies, then appends "-<random>" if the slug
-     * is already taken.
-     */
-    private function fallbackDisplayName(string $name): string
-    {
-        $base = preg_replace('/[^A-Za-z0-9_-]/', '', strtolower(str_replace(' ', '-', $name)));
-        if ($base === '') $base = 'taster';
-        $candidate = $base;
-        $tries = 0;
-        while (User::where('display_name', $candidate)->exists()) {
-            $candidate = $base . '-' . substr(bin2hex(random_bytes(4)), 0, 6);
-            if (++$tries > 5) break;
-        }
-        return $candidate;
     }
 
     private function userPayload(User $user): array

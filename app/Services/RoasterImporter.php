@@ -324,8 +324,18 @@ class RoasterImporter
         // NOW clean for storage/display.
         $description = $this->cleanDescription($rawDescription);
 
+        // Normalize an empty platform id to NULL. Storing '' lets a second
+        // id-less product on the same roaster collide on the
+        // (roaster_id, source_id) UNIQUE index and abort the entire sync;
+        // NULLs are distinct in that index, so id-less products coexist and
+        // route through the name-fallback match instead.
+        $sourceId = $c['source_id'] ?? null;
+        if ($sourceId === '') {
+            $sourceId = null;
+        }
+
         $payload = [
-            'source_id' => $c['source_id'] ?? null,
+            'source_id' => $sourceId,
             'name' => $this->cleanCoffeeName($c['name']),
             'origin' => $this->inferOrigin($c['name']),
             'description' => $description,

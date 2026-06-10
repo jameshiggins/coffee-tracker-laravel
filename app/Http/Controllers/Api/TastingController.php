@@ -64,7 +64,7 @@ class TastingController extends Controller
             'rating'      => 'nullable|integer|min:1|max:10',
             'notes'       => 'nullable|string|max:5000',
             'brew_method' => 'nullable|string|max:50',
-            'tasted_on'   => 'required|date',
+            'tasted_on'   => 'required|date|before_or_equal:today',
             'is_public'   => 'sometimes|boolean',
         ]);
         $data['user_id'] = $user->id;
@@ -88,7 +88,7 @@ class TastingController extends Controller
             'rating'      => 'nullable|integer|min:1|max:10',
             'notes'       => 'nullable|string|max:5000',
             'brew_method' => 'nullable|string|max:50',
-            'tasted_on'   => 'sometimes|date',
+            'tasted_on'   => 'sometimes|date|before_or_equal:today',
             'is_public'   => 'sometimes|boolean',
         ]);
         $tasting->update($data);

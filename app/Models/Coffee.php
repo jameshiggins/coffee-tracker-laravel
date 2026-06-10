@@ -57,7 +57,14 @@ class Coffee extends Model
 
     public function getBestPricePerGramAttribute(): ?float
     {
-        $best = $this->variants
+        // The directory's premise is "what's in stock right now", so the
+        // headline per-gram price must reflect a bag the user can actually
+        // buy. Restrict to in-stock variants; fall back to all variants only
+        // when nothing is in stock (so a fully-OOS coffee still shows a price).
+        $inStock = $this->variants->where('in_stock', true);
+        $pool = $inStock->isNotEmpty() ? $inStock : $this->variants;
+
+        $best = $pool
             ->filter(fn ($v) => $v->bag_weight_grams > 0)
             ->map(fn ($v) => $v->price / $v->bag_weight_grams)
             ->min();

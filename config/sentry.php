@@ -50,6 +50,27 @@ return [
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#send_default_pii
     'send_default_pii' => env('SENTRY_SEND_DEFAULT_PII', false),
 
+    // Never attach request bodies to events. Without this, an exception thrown
+    // during an auth POST (login / register / reset) could ship the raw
+    // `password` / `password_confirmation` / `token` fields to Sentry.
+    'max_request_body_size' => env('SENTRY_MAX_REQUEST_BODY_SIZE', 'none'),
+
+    // Defense-in-depth: strip credential-shaped keys from any event payload
+    // before it leaves the process, regardless of where they were captured.
+    'before_send' => function (\Sentry\Event $event): ?\Sentry\Event {
+        $request = $event->getRequest();
+        if (isset($request['data']) && is_array($request['data'])) {
+            foreach (['password', 'password_confirmation', 'current_password', 'token'] as $key) {
+                if (array_key_exists($key, $request['data'])) {
+                    $request['data'][$key] = '[filtered]';
+                }
+            }
+            $event->setRequest($request);
+        }
+
+        return $event;
+    },
+
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#ignore_exceptions
     // 'ignore_exceptions' => [],
 
