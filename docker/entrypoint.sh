@@ -18,6 +18,23 @@ chmod 664 "${DB_FILE}"
 
 cd /var/www/html
 
+# Data-safety: snapshot the SQLite DB BEFORE migrating. The only irreplaceable
+# data (user tastings) lives in this single file on the volume; a bad or
+# irreversible migration is otherwise unrecoverable — an image rollback does
+# NOT revert a schema change already applied to the volume. Keep the 7 most
+# recent snapshots. Guarded so a backup hiccup never blocks boot.
+if [ -s "${DB_FILE}" ]; then
+    BACKUP_DIR="${DB_DIR}/backups"
+    mkdir -p "${BACKUP_DIR}"
+    if cp "${DB_FILE}" "${BACKUP_DIR}/database-$(date +%Y%m%d-%H%M%S).sqlite"; then
+        echo "[entrypoint] DB snapshot written before migrate."
+    else
+        echo "[entrypoint] WARNING: pre-migrate DB snapshot failed." >&2
+    fi
+    # Prune to the 7 most recent snapshots (|| true so pipefail can't block boot).
+    ls -1t "${BACKUP_DIR}"/database-*.sqlite 2>/dev/null | tail -n +8 | xargs -r rm -f || true
+fi
+
 # Migrations are safe to re-run; --force skips the prod-confirm prompt.
 php artisan migrate --force
 

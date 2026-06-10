@@ -133,12 +133,30 @@ After deploy, hit:
 
 ## CI
 
-Recommended (not yet set up):
-- GitHub Actions on push: run `php artisan test` and `npm run vitest`
-- Fail the merge if either suite fails
-- Auto-deploy `main` to Fly.io + Vercel via their respective GitHub integrations
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
+- `php artisan test` against SQLite (migrations + full suite)
+
+Deploy is **gated on CI**: `.github/workflows/fly-deploy.yml` triggers on the
+`CI` workflow completing, and only runs `flyctl deploy` when that run's
+conclusion was `success` — so a red build can't ship.
+
+Recommended next steps (not yet wired): static analysis (Larastan) and a code
+style check. NOTE: the codebase follows a deliberate house style that differs
+from Laravel Pint's defaults, so a `pint --test` gate would need a project
+`pint.json` (or a one-time repo-wide reformat) first — don't add it blindly.
 
 ## Rollback
+
+**Database snapshots.** The boot script (`docker/entrypoint.sh`) writes a
+timestamped copy of `/data/database.sqlite` to `/data/backups/` BEFORE running
+`migrate --force`, keeping the 7 most recent. To recover from a bad migration:
+```
+fly ssh console
+ls -1t /data/backups/                       # pick the snapshot from before the deploy
+cp /data/backups/database-<ts>.sqlite /data/database.sqlite
+```
+An image rollback alone does NOT undo a schema migration already applied to the
+volume — restore the snapshot too.
 
 Fly:
 ```
