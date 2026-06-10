@@ -67,6 +67,19 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
 
+        // Data quality: sweep the active catalog for rows the coffee/gear
+        // filter now rejects and soft-remove them. A re-import already
+        // self-heals each roaster, but this backstops rows that slipped in
+        // before the filter was tightened on roasters that have since stopped
+        // being imported (the "Espro French Press" class of junk). Weekly,
+        // after the Monday digest; soft-remove is reversible and tasting-bearing
+        // rows are left for manual review.
+        $schedule->command('coffees:purge-non-coffee --apply')
+            ->weeklyOn(1, '13:30')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+
         // Ops liveness: bump the scheduler heartbeat that GET /up reads. If
         // schedule:work dies, this stops and /up flips to 503 within ~15 min,
         // so whatever uptime monitor watches /up catches a dead scheduler —

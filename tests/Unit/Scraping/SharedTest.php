@@ -194,6 +194,41 @@ class SharedTest extends TestCase
         );
     }
 
+    // ── looksLikeCoffee: field-confirmed junk regression ─────────────────
+    //
+    // These EXACT titles were found imported-as-coffee in the production
+    // database (they slipped in before the gear filter was tightened, e.g.
+    // Ace's "Espro French Press" whose 18oz/32oz sizes parseGrams read as
+    // 510g/907g "bags" at a $150-190 price that sat inside the per-gram sanity
+    // band). They must stay rejected forever — even with a 'Coffee'
+    // product_type, which is the worst case (a positive type signal present).
+
+    /** @return array<string, array{0:string,1:string,2:array<int,string>}> */
+    public static function fieldConfirmedJunkCases(): array
+    {
+        return [
+            'espro french press (stored)' => ['Espro French Press', 'Coffee', ['coffee']],
+            'espro french press (raw)'    => ['Espro P7 18oz French Press', 'Coffee', []],
+            'mugs case'                   => ['Created Co 12oz White Mugs Case of 6', 'Coffee', []],
+            'etched milk pitcher'         => ['Revolution Graduated & Etched Milk Pitcher', 'Coffee', []],
+            'breville milk pitcher'       => ['Breville - the Temp Control Milk Pitcher', 'Coffee', []],
+            'honey product'               => ['Drizzle Honey', 'Coffee', []],
+            'internal test sku'           => ['DO NOT BUY [TEST]', 'Coffee', []],
+        ];
+    }
+
+    /**
+     * @param array<int, string> $tags
+     */
+    #[DataProvider('fieldConfirmedJunkCases')]
+    public function test_looks_like_coffee_rejects_field_confirmed_junk(string $title, string $type, array $tags): void
+    {
+        $this->assertFalse(
+            Shared::looksLikeCoffee($title, $type, $tags),
+            "Field-confirmed junk must be rejected: \"{$title}\" [{$type}]"
+        );
+    }
+
     // ── isBlend ───────────────────────────────────────────────────────────
 
     public function test_is_blend_explicit_signals(): void
