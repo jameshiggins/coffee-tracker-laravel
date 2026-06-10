@@ -2,6 +2,7 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -27,8 +28,7 @@ class FaviconScraper
         $origin = Shared::origin($websiteUrl);
 
         try {
-            $response = Http::timeout(8)
-                ->withOptions(Shared::clientOptions())
+            $response = SafeHttp::client(8)
                 ->get($origin);
             if (!$response->ok()) return $this->checkRootFallbacks($origin);
             $html = $response->body();
@@ -85,8 +85,7 @@ class FaviconScraper
     private function urlReachable(string $url): bool
     {
         try {
-            $r = Http::timeout(5)
-                ->withOptions(Shared::clientOptions())
+            $r = SafeHttp::client(5)
                 ->withHeaders(['Accept' => 'image/*'])
                 ->get($url);
             return $r->ok() && $r->header('Content-Length') !== '0';

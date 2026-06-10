@@ -33,7 +33,14 @@ final class OriginGazetteer
         $best = '';
         $bestLen = 0;
         foreach (self::aliases() as $needle => $country) {
-            if (str_contains($haystack, $needle)) {
+            // Word-boundary match (unicode-aware) instead of a bare substring,
+            // so flavor/incidental words don't yield confident wrong origins:
+            // "Caramel Mocha" no longer hits a "mocha" alias inside a longer
+            // word, "Harare" no longer matches "harar", "JavaScript" no longer
+            // matches "java". Boundaries are "not a letter or number" on each
+            // side, which also tolerates accented needles ("Tarrazú").
+            $pattern = '/(?<![\p{L}\p{N}])' . preg_quote($needle, '/') . '(?![\p{L}\p{N}])/u';
+            if (preg_match($pattern, $haystack)) {
                 $len = mb_strlen($needle);
                 if ($len > $bestLen) {
                     $best = $country;

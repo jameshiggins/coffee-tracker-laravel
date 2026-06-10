@@ -2,6 +2,7 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -23,7 +24,7 @@ class WooCommerceScraper implements RoasterScraper
     {
         try {
             $endpoint = Shared::origin($url) . '/wp-json/wc/store/products?per_page=1';
-            $response = Http::timeout(10)->withOptions(Shared::clientOptions())->acceptJson()->get($endpoint);
+            $response = SafeHttp::client(10)->acceptJson()->get($endpoint);
             if (!$response->ok()) return false;
             $body = $response->json();
             return is_array($body); // top-level array of products on success
@@ -38,7 +39,7 @@ class WooCommerceScraper implements RoasterScraper
         $all = [];
         for ($page = 1; $page <= self::MAX_PAGES; $page++) {
             $endpoint = $origin . '/wp-json/wc/store/products?per_page=' . self::PER_PAGE . '&page=' . $page;
-            $response = Http::timeout(15)->withOptions(Shared::clientOptions())->acceptJson()->get($endpoint);
+            $response = SafeHttp::client(15)->acceptJson()->get($endpoint);
             if (!$response->ok()) {
                 throw new RuntimeException("WooCommerce fetch failed: {$response->status()} for {$endpoint}");
             }
@@ -75,8 +76,7 @@ class WooCommerceScraper implements RoasterScraper
                 $id = $v['id'] ?? null;
                 if (!$id) continue;
                 try {
-                    $resp = Http::timeout(10)
-                        ->withOptions(Shared::clientOptions())
+                    $resp = SafeHttp::client(10)
                         ->acceptJson()
                         ->get($origin . '/wp-json/wc/store/products/' . $id);
                 } catch (\Throwable) {
@@ -113,6 +113,11 @@ class WooCommerceScraper implements RoasterScraper
                     foreach ($v['attributes'] ?? [] as $a) {
                         $varTitle .= ' ' . (is_array($a) ? ($a['value'] ?? '') : (string) $a);
                     }
+                    // Skip multipack / bundle / portion-pack variants — their
+                    // price is for the whole bundle, which corrupts per-gram
+                    // comparison if recorded against a single bag's weight.
+                    // (Previously only ShopifyScraper applied this gate.)
+                    if (Shared::isBadVariantTitle($varTitle)) continue;
                     $grams = Shared::parseGrams($varTitle);
                     if ($grams === null) continue;
                     $price = (float) ($v['prices']['price'] ?? 0) / 100;

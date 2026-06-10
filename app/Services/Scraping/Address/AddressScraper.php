@@ -3,6 +3,7 @@
 namespace App\Services\Scraping\Address;
 
 use App\Models\Roaster;
+use App\Services\Http\SafeHttp;
 use App\Services\NominatimGeocoder;
 use App\Services\Scraping\Shared;
 use Illuminate\Support\Facades\Http;
@@ -121,8 +122,7 @@ class AddressScraper
     private function fetchHtml(string $url): ?string
     {
         try {
-            $response = Http::timeout(10)
-                ->withOptions(Shared::clientOptions())
+            $response = SafeHttp::client(10)
                 ->get($url);
             if (!$response->ok()) return null;
             return $response->body();

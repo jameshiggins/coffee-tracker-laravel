@@ -2,6 +2,7 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -30,7 +31,7 @@ class AboutPageScraper
     private function extractFromUrl(string $url): ?string
     {
         try {
-            $response = Http::timeout(10)->withOptions(Shared::clientOptions())->get($url);
+            $response = SafeHttp::client(10)->get($url);
             if (!$response->ok()) return null;
             return $this->extractFromHtml($response->body());
         } catch (\Throwable) {

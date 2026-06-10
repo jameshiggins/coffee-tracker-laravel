@@ -2,6 +2,7 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -64,7 +65,7 @@ class GenericHtmlScraper implements RoasterScraper
 
     private function fetchHtml(string $url): string
     {
-        $response = Http::timeout(15)->withOptions(Shared::clientOptions())->get($url);
+        $response = SafeHttp::client(15)->get($url);
         if (!$response->ok()) {
             throw new RuntimeException("Generic fetch failed: {$response->status()} for {$url}");
         }

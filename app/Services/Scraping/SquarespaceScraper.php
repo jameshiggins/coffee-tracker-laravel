@@ -2,6 +2,7 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -38,7 +39,7 @@ class SquarespaceScraper implements RoasterScraper
         try {
             $origin = Shared::origin($url);
             // Lightweight probe: any Squarespace page exposes ?format=json-pretty.
-            $r = Http::timeout(8)->withOptions(Shared::clientOptions())->get($origin . '?format=json-pretty');
+            $r = SafeHttp::client(8)->get($origin . '?format=json-pretty');
             if (!$r->ok()) return false;
             $body = $r->json();
             return is_array($body)
@@ -66,7 +67,7 @@ class SquarespaceScraper implements RoasterScraper
     {
         foreach (self::SHOP_PATHS as $path) {
             try {
-                $r = Http::timeout(15)->withOptions(Shared::clientOptions())
+                $r = SafeHttp::client(15)
                     ->get($origin . $path . '?format=json-pretty');
                 if (!$r->ok()) continue;
                 if (!str_contains($r->header('Content-Type') ?? '', 'json')) continue;
@@ -127,6 +128,10 @@ class SquarespaceScraper implements RoasterScraper
                 if ($bagSizeStr === '' && is_array($attrs)) {
                     $bagSizeStr = implode(' ', array_map('strval', $attrs));
                 }
+                // Skip multipack / bundle / portion-pack variants (e.g. an
+                // attribute of "Case of 12" / "12 x 250g") — bundle pricing
+                // recorded against one bag's weight corrupts per-gram compare.
+                if (Shared::isBadVariantTitle($bagSizeStr) || Shared::isBadVariantTitle($title)) continue;
                 // Size resolution order: variant attribute → title → a standard
                 // bag size mentioned in the description. The last fallback
                 // rescues single-size coffees with attribute-less variants (the
