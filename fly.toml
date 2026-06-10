@@ -21,6 +21,9 @@ console_command = 'php /var/www/html/artisan tinker'
   SESSION_SECURE_COOKIE = 'true'
   DB_CONNECTION = 'sqlite'
   DB_DATABASE = '/data/database.sqlite'
+  # Heavy imports + transactional mail run on the queue worker started in
+  # docker/entrypoint.sh, not inline on the web request.
+  QUEUE_CONNECTION = 'database'
 
 [http_service]
   internal_port = 8080

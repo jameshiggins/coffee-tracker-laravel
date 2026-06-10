@@ -31,6 +31,18 @@ php artisan view:cache
 # every few minutes; if it dies, the value goes stale and /up flips to 503.
 php artisan ops:heartbeat scheduler.tick || true
 
+# Background queue worker. Processes the `database` queue (QUEUE_CONNECTION):
+# roaster imports dispatched from the admin console + queued transactional
+# mail (digests, restock alerts). Without it, those jobs would pile up unrun.
+# Same restart-loop + www-data ownership as the scheduler below.
+(
+  while true; do
+    su -s /bin/sh -c "php /var/www/html/artisan queue:work --queue=default --sleep=3 --tries=3 --max-time=3600" www-data || true
+    echo "[entrypoint] queue:work exited unexpectedly; restarting in 5s" >&2
+    sleep 5
+  done
+) &
+
 # Background scheduler. Laravel's schedule:work loops every minute and
 # dispatches the jobs defined in app/Console/Kernel.php:
 #   - roasters:import-all  daily 11:00 UTC (inventory/price refresh)

@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -14,7 +15,7 @@ use Illuminate\Queue\SerializesModels;
  *
  * @property array $coffees [{id, name, image_url, roaster_name, frontend_url}]
  */
-class RestockDigest extends Mailable
+class RestockDigest extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
