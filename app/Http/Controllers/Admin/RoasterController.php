@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ImportRoasterJob;
 use App\Models\Roaster;
+use App\Services\NominatimGeocoder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -16,7 +18,6 @@ class RoasterController extends Controller
         // keep alphabetical.
         $statusOrder = "CASE last_import_status
             WHEN 'error' THEN 0
-            WHEN 'unsupported' THEN 1
             WHEN 'empty' THEN 2
             WHEN 'success' THEN 4
             ELSE 3 END"; // null = 3, never imported
@@ -109,5 +110,69 @@ class RoasterController extends Controller
 
         return redirect()->route('admin.roasters.index')
             ->with('success', 'Roaster deactivated and hidden from the directory (data preserved). Re-activate any time by editing it.');
+    }
+
+    public function importForm()
+    {
+        return view('admin.roasters.import');
+    }
+
+    public function import(Request $request)
+    {
+        $data = $request->validate([
+            'url' => 'required|url',
+            'name' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:255',
+            'region' => 'nullable|string|max:255',
+        ]);
+
+        // Off the web request: a full scrape can take minutes and would
+        // otherwise time out the admin POST. The worker runs it; the importer
+        // records last_import_status for visibility on the index.
+        ImportRoasterJob::dispatch(
+            $data['url'], $data['name'] ?? null, $data['city'] ?? null, $data['region'] ?? null
+        );
+
+        return redirect()->route('admin.roasters.index')
+            ->with('success', "Import queued for {$data['url']} — it runs in the background; refresh in a moment to see the roaster and its beans.");
+    }
+
+    public function refresh(Roaster $roaster)
+    {
+        if (! $roaster->website) {
+            return back()->withErrors(['url' => 'Roaster has no website to import from.']);
+        }
+
+        ImportRoasterJob::dispatch(
+            $roaster->website, $roaster->name, $roaster->city, $roaster->region
+        );
+
+        return back()->with('success', "Refresh queued for {$roaster->name} — runs in the background.");
+    }
+
+    public function geocode(Roaster $roaster)
+    {
+        if (! $roaster->street_address) {
+            return back()->withErrors(['street_address' => 'No street address to geocode. Edit the roaster first.']);
+        }
+
+        $hit = (new NominatimGeocoder())->geocode(
+            $roaster->street_address, $roaster->city, $roaster->region, 'Canada'
+        );
+        if (! $hit) {
+            return back()->with('success', "Geocode failed for {$roaster->name}: no match.");
+        }
+
+        // Stamp address_source='manual' so the monthly address sweep treats
+        // this as resolved and never overwrites the hand-placed pin (matches
+        // the 'manual' convention ApplyRoasterCorrections already uses).
+        $roaster->update([
+            'latitude' => $hit['lat'],
+            'longitude' => $hit['lng'],
+            'address_source' => 'manual',
+            'address_verified_at' => now(),
+        ]);
+
+        return back()->with('success', "Geocoded {$roaster->name} → {$hit['display_name']}");
     }
 }

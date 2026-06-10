@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\RoasterController;
 use App\Http\Controllers\Admin\RoasterController as AdminRoasterController;
 use App\Http\Controllers\Admin\CoffeeController as AdminCoffeeController;
 use App\Http\Controllers\Admin\VariantController as AdminVariantController;
@@ -52,60 +51,17 @@ Route::prefix('admin')->name('admin.')->middleware('admin.basic')->group(functio
     Route::delete('variants/{variant}', [AdminVariantController::class, 'destroy'])
         ->name('variants.destroy');
 
-    Route::get('import', function () {
-        return view('admin.roasters.import');
-    })->name('roasters.import.form');
-
-    Route::post('import', function (\Illuminate\Http\Request $request) {
-        $data = $request->validate([
-            'url' => 'required|url',
-            'name' => 'nullable|string|max:255',
-            'city' => 'nullable|string|max:255',
-            'region' => 'nullable|string|max:255',
-        ]);
-        try {
-            $roaster = (new \App\Services\RoasterImporter())->import(
-                $data['url'], $data['name'] ?? null, $data['city'] ?? null, $data['region'] ?? null
-            );
-            return redirect()->route('admin.roasters.index')
-                ->with('success', "Imported {$roaster->name} ({$roaster->coffees()->count()} coffees).");
-        } catch (\Throwable $e) {
-            return back()->withInput()->withErrors(['url' => 'Import failed: ' . $e->getMessage()]);
-        }
-    })->name('roasters.import');
-
-    Route::post('roasters/{roaster}/refresh', function (\App\Models\Roaster $roaster) {
-        if (!$roaster->website) {
-            return back()->withErrors(['url' => 'Roaster has no website to import from.']);
-        }
-        try {
-            (new \App\Services\RoasterImporter())->import(
-                $roaster->website, name: $roaster->name, city: $roaster->city, region: $roaster->region
-            );
-            return back()->with('success', "Refreshed {$roaster->name}.");
-        } catch (\Throwable $e) {
-            // Importer already persisted last_import_status='error'; flash for visibility.
-            return back()->with('success', "Tried to refresh {$roaster->name}: " . $e->getMessage());
-        }
-    })->name('roasters.refresh');
+    // Import / refresh / geocode — logic lives in AdminRoasterController
+    // (testable, consistent with the resourceful actions above) rather than
+    // inline closures. import/refresh queue an ImportRoasterJob.
+    Route::get('import', [AdminRoasterController::class, 'importForm'])->name('roasters.import.form');
+    Route::post('import', [AdminRoasterController::class, 'import'])->name('roasters.import');
+    Route::post('roasters/{roaster}/refresh', [AdminRoasterController::class, 'refresh'])->name('roasters.refresh');
+    Route::post('roasters/{roaster}/geocode', [AdminRoasterController::class, 'geocode'])->name('roasters.geocode');
 
     // Q17: moderation queue
     Route::get('moderation', [AdminModerationController::class, 'index'])->name('moderation.index');
     Route::post('moderation/{tasting}/hide', [AdminModerationController::class, 'hide'])->name('moderation.hide');
     Route::post('moderation/{id}/restore', [AdminModerationController::class, 'restore'])->name('moderation.restore');
     Route::post('moderation/{tasting}/dismiss', [AdminModerationController::class, 'dismiss'])->name('moderation.dismiss');
-
-    Route::post('roasters/{roaster}/geocode', function (\App\Models\Roaster $roaster) {
-        if (!$roaster->street_address) {
-            return back()->withErrors(['street_address' => 'No street address to geocode. Edit the roaster first.']);
-        }
-        $hit = (new \App\Services\NominatimGeocoder())->geocode(
-            $roaster->street_address, $roaster->city, $roaster->region, 'Canada'
-        );
-        if (!$hit) {
-            return back()->with('success', "Geocode failed for {$roaster->name}: no match.");
-        }
-        $roaster->update(['latitude' => $hit['lat'], 'longitude' => $hit['lng']]);
-        return back()->with('success', "Geocoded {$roaster->name} → {$hit['display_name']}");
-    })->name('roasters.geocode');
 });

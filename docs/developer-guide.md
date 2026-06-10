@@ -119,13 +119,20 @@ Each `fetch()` returns coffees in this shape:
   'varietal' => 'Heirloom',
   'tasting_notes' => 'jasmine, bergamot',
   'variants' => [
-    ['bag_weight_grams' => 340, 'price' => 24.50, 'currency' => 'CAD',
-     'in_stock' => true, 'purchase_link' => '…', 'source_variant_id' => '…'],
+    // Exact keys RoasterImporter::syncVariants() reads. NOTE: it's `grams`
+    // (not bag_weight_grams), `available` (not in_stock), and `source_id`
+    // (not source_variant_id). Currency is not per-variant — it defaults to
+    // CAD on the column. `source_size_label` is the friendly bag label.
+    ['grams' => 340, 'price' => 24.50, 'available' => true,
+     'source_id' => '…', 'purchase_link' => '…', 'source_size_label' => '340 g'],
   ],
 ]
 ```
 
-Register the scraper in `App\Services\Scraping\ScraperRegistry::all()`.
+Register the scraper by adding it to the default list in
+`App\Services\Scraping\ScraperRegistry::__construct()` (there is no `all()`
+method). Order matters: most specific / cheapest-to-detect first, the
+generic `GenericHtmlScraper` catch-all last.
 
 ## Stable-ID upsert + soft-remove
 
