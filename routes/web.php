@@ -42,6 +42,8 @@ Route::prefix('admin')->name('admin.')->middleware('admin.basic')->group(functio
         ->name('coffees.update');
     Route::delete('roasters/{roaster}/coffees/{coffee}', [AdminCoffeeController::class, 'destroy'])
         ->name('coffees.destroy');
+    Route::post('roasters/{roaster}/coffees/{coffee}/restore', [AdminCoffeeController::class, 'restore'])
+        ->name('coffees.restore');
 
     Route::post('coffees/{coffee}/variants', [AdminVariantController::class, 'store'])
         ->name('variants.store');

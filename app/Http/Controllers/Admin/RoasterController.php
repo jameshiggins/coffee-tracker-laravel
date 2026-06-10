@@ -100,7 +100,14 @@ class RoasterController extends Controller
 
     public function destroy(Roaster $roaster)
     {
-        $roaster->delete();
-        return redirect()->route('admin.roasters.index')->with('success', 'Roaster deleted.');
+        // Soft-remove, never hard-delete. coffees.roaster_id is cascadeOnDelete,
+        // so a real DELETE would destroy every coffee for this roaster and, in
+        // turn, every user tasting + wishlist that FKs to those coffees. We
+        // deactivate instead: is_active=false drops the roaster (and its beans)
+        // from every public surface while keeping all data recoverable.
+        $roaster->update(['is_active' => false]);
+
+        return redirect()->route('admin.roasters.index')
+            ->with('success', 'Roaster deactivated and hidden from the directory (data preserved). Re-activate any time by editing it.');
     }
 }

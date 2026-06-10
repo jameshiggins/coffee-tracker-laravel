@@ -56,7 +56,22 @@ class CoffeeController extends Controller
 
     public function destroy(Roaster $roaster, Coffee $coffee)
     {
-        $coffee->delete();
-        return redirect()->back()->with('success', 'Coffee offering deleted.');
+        // Soft-remove, never hard-delete. A real DELETE here would cascade
+        // (coffees.roaster_id / tastings.coffee_id / wishlists.coffee_id are
+        // cascadeOnDelete) and silently wipe every user tasting + wishlist
+        // referencing this coffee, bypassing Tasting's SoftDeletes and audit
+        // trail. Setting removed_at matches the importer's soft-remove contract:
+        // the coffee drops out of every public surface (Coffee::scopeAvailable)
+        // while preserving the rows user content FKs to.
+        $coffee->update(['removed_at' => now()]);
+
+        return redirect()->back()->with('success', 'Coffee offering removed from the directory (user tastings preserved).');
+    }
+
+    public function restore(Roaster $roaster, Coffee $coffee)
+    {
+        $coffee->update(['removed_at' => null]);
+
+        return redirect()->back()->with('success', 'Coffee offering restored to the directory.');
     }
 }
