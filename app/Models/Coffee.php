@@ -14,12 +14,13 @@ class Coffee extends Model
     protected $fillable = [
         'roaster_id', 'source_id', 'name', 'origin', 'process', 'roast_level',
         'varietal', 'elevation_meters', 'tasting_notes', 'description',
-        'product_url', 'image_url', 'is_blend', 'removed_at',
+        'product_url', 'image_url', 'is_blend', 'best_cents_per_gram', 'removed_at',
     ];
 
     protected $casts = [
         'is_blend' => 'boolean',
         'elevation_meters' => 'integer',
+        'best_cents_per_gram' => 'integer',
         'removed_at' => 'datetime',
     ];
 
@@ -53,6 +54,19 @@ class Coffee extends Model
     public function getCheapestVariantAttribute(): ?CoffeeVariant
     {
         return $this->variants->sortBy('price')->first();
+    }
+
+    /**
+     * Recompute and persist best_cents_per_gram from the (loaded) variants.
+     * Called by the importer after syncing variants so the indexed column the
+     * /api/coffees endpoint sorts/filters on stays in lockstep with pricing.
+     */
+    public function refreshBestCentsPerGram(): void
+    {
+        $best = $this->best_price_per_gram; // in-stock-aware, dollars/gram
+        $this->forceFill([
+            'best_cents_per_gram' => $best === null ? null : (int) round($best * 100),
+        ])->save();
     }
 
     public function getBestPricePerGramAttribute(): ?float

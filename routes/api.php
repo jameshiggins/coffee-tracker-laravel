@@ -26,6 +26,9 @@ Route::get('/roasters', [RoasterApiController::class, 'index']);
 // Trust#1: directory coverage + freshness summary.
 Route::get('/stats', [RoasterApiController::class, 'stats']);
 Route::get('/roasters/{roaster}', [RoasterApiController::class, 'show']);
+// Bean-centric directory: paginated, filterable (origin/process/roast/in-stock/
+// price), sortable. The server-side support the product's filters need.
+Route::get('/coffees', [CoffeeApiController::class, 'index']);
 Route::get('/coffees/{coffee}', [CoffeeApiController::class, 'show']);
 Route::get('/coffees/{coffee}/tastings', [TastingController::class, 'publicForCoffee']);
 

@@ -4,26 +4,35 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Coffee;
+use App\Models\CoffeeVariant;
 use App\Models\Roaster;
 use App\Models\Tasting;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class RoasterApiController extends Controller
 {
     public function index(): JsonResponse
     {
-        $roasters = Roaster::with(['coffees' => fn ($q) => $q->whereNull('removed_at'), 'coffees.variants'])
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get();
+        // The whole directory changes at most a few times a day (the nightly
+        // import + occasional admin edits), but this is the SPA's heaviest,
+        // most-hit read. Cache the fully-assembled payload, keyed on a content
+        // version so any write transparently busts it.
+        $roasters = $this->cacheDirectory('api:roasters:index', function () {
+            $roasters = Roaster::with(['coffees' => fn ($q) => $q->whereNull('removed_at'), 'coffees.variants'])
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get();
 
-        // Single grouped query for aggregate ratings across every coffee
-        // shown in this response. Cheaper than N+1 sub-queries; result is
-        // a [coffee_id => ['count' => N, 'avg' => X.X]] lookup map.
-        $coffeeIds = $roasters->flatMap(fn ($r) => $r->coffees->pluck('id'))->all();
-        $ratingMap = $this->buildRatingMap($coffeeIds);
+            // Single grouped query for aggregate ratings across every coffee
+            // shown in this response. Cheaper than N+1 sub-queries.
+            $ratingMap = $this->buildRatingMap($roasters->flatMap(fn ($r) => $r->coffees->pluck('id'))->all());
+
+            return $roasters->map(fn ($r) => $this->transformRoaster($r, false, $ratingMap))->values()->all();
+        });
 
         // JSON_INVALID_UTF8_SUBSTITUTE: render U+FFFD in place of invalid
         // UTF-8 bytes instead of throwing InvalidArgumentException (which
@@ -31,18 +40,50 @@ class RoasterApiController extends Controller
         // Import-time sanitize in RoasterImporter prevents new bad bytes;
         // this defends against the existing tail of historical rows.
         return response()->json([
-            'roasters' => $roasters->map(fn ($r) => $this->transformRoaster($r, false, $ratingMap))->values(),
+            'roasters' => $roasters,
         ], 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     public function show(Roaster $roaster): JsonResponse
     {
+        // A deactivated roaster is a moderation "hide" — 404 instead of
+        // serving it (index already filters is_active; show must too).
+        abort_if(! $roaster->is_active, 404);
+
         $roaster->load([
             'coffees' => fn ($q) => $q->whereNull('removed_at'),
             'coffees.variants',
         ]);
         $ratingMap = $this->buildRatingMap($roaster->coffees->pluck('id')->all());
         return response()->json($this->transformRoaster($roaster, true, $ratingMap), 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
+    /**
+     * Cache an assembled directory payload, keyed on a content version so any
+     * roaster/coffee/variant/tasting write busts it automatically. Bypassed
+     * under the test suite for determinism (the array cache store persists
+     * across tests in-process and would collide on the version key).
+     */
+    private function cacheDirectory(string $key, Closure $build): mixed
+    {
+        if (app()->runningUnitTests()) {
+            return $build();
+        }
+
+        return Cache::remember($key . ':' . $this->directoryVersion(), now()->addHours(6), $build);
+    }
+
+    private function directoryVersion(): string
+    {
+        return md5(implode('|', [
+            (string) Roaster::max('updated_at'),
+            (string) Coffee::max('updated_at'),
+            (string) CoffeeVariant::max('updated_at'),
+            (string) Tasting::max('updated_at'),
+            (string) Roaster::count(),
+            (string) Coffee::count(),
+            (string) Tasting::count(),
+        ]));
     }
 
     /**
@@ -53,6 +94,12 @@ class RoasterApiController extends Controller
      * this is a handful of cheap COUNT()s with no per-row work.
      */
     public function stats(): JsonResponse
+    {
+        return response()->json($this->cacheDirectory('api:stats', fn () => $this->buildStats()), 200);
+    }
+
+    /** @return array<string, mixed> */
+    private function buildStats(): array
     {
         $freshWithinDays = 7;
         $freshCutoff = Carbon::now()->subDays($freshWithinDays);
@@ -91,7 +138,7 @@ class RoasterApiController extends Controller
 
         $lastImportedAt = Roaster::where('is_active', true)->max('last_imported_at');
 
-        return response()->json([
+        return [
             'roasters_total' => $roastersTotal,
             'coffees_total' => $coffeesTotal,
             'last_imported_at' => $lastImportedAt ? Carbon::parse($lastImportedAt)->toIso8601String() : null,
@@ -106,7 +153,7 @@ class RoasterApiController extends Controller
                 'online_only' => $onlineOnly,
                 'unplaced' => $unplaced,
             ],
-        ], 200);
+        ];
     }
 
     /** Last-resort favicon fallback via Google's public S2 service. */

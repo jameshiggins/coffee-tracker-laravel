@@ -3,19 +3,96 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\CoffeeResource;
 use App\Models\Coffee;
+use App\Models\Tasting;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
- * Coffee detail endpoint backing the /c/:id page (Q7). Returns the
- * full coffee record + its roaster + variants + aggregate rating
- * (Q8) so the React page can render the entire view with one fetch.
+ * Coffee endpoints. show() backs the /c/:id detail page (Q7). index() is the
+ * bean-centric directory listing: paginated, filterable (origin/process/roast/
+ * in-stock/price), and sortable — the server-side support the product's
+ * filters need, which the firehose /api/roasters never provided.
  */
 class CoffeeApiController extends Controller
 {
+    /** Public, paginated, filterable bean directory. */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $filters = $request->validate([
+            'origin' => 'nullable|string|max:100',
+            'process' => 'nullable|string|max:100',
+            'roast' => 'nullable|string|max:100',
+            'roaster' => 'nullable|string|max:255',   // roaster slug
+            'is_blend' => 'nullable|boolean',
+            'in_stock' => 'nullable|boolean',
+            'min_cents_per_gram' => 'nullable|numeric|min:0',
+            'max_cents_per_gram' => 'nullable|numeric|min:0',
+            'sort' => 'nullable|in:price_asc,price_desc,name,newest',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        $query = Coffee::query()
+            ->available()
+            ->whereHas('roaster', fn ($q) => $q->where('is_active', true))
+            ->with(['roaster', 'variants']);
+
+        if (! empty($filters['origin'])) {
+            $query->where('origin', $filters['origin']);
+        }
+        if (! empty($filters['process'])) {
+            $query->where('process', $filters['process']);
+        }
+        if (! empty($filters['roast'])) {
+            $query->where('roast_level', $filters['roast']);
+        }
+        if (! empty($filters['roaster'])) {
+            $query->whereHas('roaster', fn ($q) => $q->where('slug', $filters['roaster']));
+        }
+        if (array_key_exists('is_blend', $filters) && $filters['is_blend'] !== null) {
+            $query->where('is_blend', (bool) $filters['is_blend']);
+        }
+        if (! empty($filters['in_stock'])) {
+            $query->whereHas('variants', fn ($q) => $q->where('in_stock', true));
+        }
+        if (isset($filters['min_cents_per_gram'])) {
+            $query->where('best_cents_per_gram', '>=', $filters['min_cents_per_gram']);
+        }
+        if (isset($filters['max_cents_per_gram'])) {
+            $query->where('best_cents_per_gram', '<=', $filters['max_cents_per_gram']);
+        }
+
+        match ($filters['sort'] ?? 'name') {
+            // NULL prices sort last on a cheap ascending sort.
+            'price_asc' => $query->orderByRaw('best_cents_per_gram IS NULL, best_cents_per_gram ASC'),
+            'price_desc' => $query->orderByDesc('best_cents_per_gram'),
+            'newest' => $query->orderByDesc('id'),
+            default => $query->orderBy('name'),
+        };
+
+        $page = $query->paginate($filters['per_page'] ?? 24)->withQueryString();
+
+        // One grouped rating query for the whole page, attached per coffee so
+        // CoffeeResource never triggers an N+1.
+        $ratingMap = Tasting::ratingMapFor($page->getCollection()->pluck('id')->all());
+        $page->getCollection()->each(function (Coffee $coffee) use ($ratingMap) {
+            $coffee->setAttribute('rating_summary', $ratingMap[$coffee->id]
+                ?? ['count' => 0, 'average' => null, 'average_stars' => null]);
+        });
+
+        return CoffeeResource::collection($page);
+    }
+
     public function show(Coffee $coffee): JsonResponse
     {
         $coffee->load(['roaster', 'variants', 'tastings' => fn ($q) => $q->where('is_public', true)]);
+
+        // Don't serve coffees whose roaster was deactivated (a deactivated
+        // roaster is a moderation "hide" — its beans must disappear too).
+        abort_if($coffee->roaster === null || ! $coffee->roaster->is_active, 404);
+
         return response()->json(['coffee' => $this->transform($coffee)]);
     }
 

@@ -26,6 +26,7 @@ class TastingController extends Controller
             ->where('is_public', true)
             ->with('user:id,display_name,avatar_url')
             ->orderByDesc('tasted_on')
+            ->limit(100) // unauthenticated, unbounded feed → cap it
             ->get();
 
         return response()->json([

@@ -380,6 +380,12 @@ class RoasterImporter
         }
 
         $this->syncVariants($coffee, $c['variants'] ?? [], $c['product_url'] ?? $roaster->website);
+
+        // Keep the indexed best_cents_per_gram (used for DB-side sort/filter on
+        // /api/coffees) in lockstep with the freshly-synced variant prices.
+        $coffee->load('variants');
+        $coffee->refreshBestCentsPerGram();
+
         return $coffee;
     }
 

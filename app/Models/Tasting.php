@@ -47,6 +47,37 @@ class Tasting extends Model
         ];
     }
 
+    /**
+     * Aggregate public rating per coffee in ONE grouped query (avoids N+1).
+     * Returns [coffee_id => ['count'=>int, 'average'=>?float, 'average_stars'=>?float]].
+     */
+    public static function ratingMapFor(array $coffeeIds): array
+    {
+        if (empty($coffeeIds)) {
+            return [];
+        }
+
+        $rows = static::query()
+            ->selectRaw('coffee_id, COUNT(*) as cnt, AVG(rating) as avg_rating')
+            ->whereIn('coffee_id', $coffeeIds)
+            ->where('is_public', true)
+            ->whereNotNull('rating')
+            ->groupBy('coffee_id')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $avg = $row->avg_rating !== null ? round((float) $row->avg_rating, 1) : null;
+            $map[$row->coffee_id] = [
+                'count' => (int) $row->cnt,
+                'average' => $avg,
+                'average_stars' => $avg !== null ? round($avg / 2, 1) : null,
+            ];
+        }
+
+        return $map;
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
