@@ -17,6 +17,17 @@ use Illuminate\Support\Str;
 
 class RoasterImporter
 {
+    /**
+     * Coffees fully out of stock for at least this many days are treated as
+     * discontinued and soft-removed. Some roasters never unpublish their
+     * sold-out products (49th Parallel is the canonical case — they also
+     * re-list repeat coffees as brand-new products), so those rows never
+     * disappear from the feed and the normal missing-row soft-remove in
+     * syncCoffees never fires, ballooning the catalogue with long-dead
+     * sold-outs and stale duplicate copies.
+     */
+    private const STALE_OOS_DAYS = 60;
+
     private ScraperRegistry $registry;
     private AboutPageScraper $about;
     private ShippingPolicyScraper $shipping;
@@ -168,6 +179,7 @@ class RoasterImporter
         }
 
         $this->syncCoffees($roaster, $coffees);
+        $this->pruneStaleOutOfStock($roaster);
 
         $roaster->forceFill([
             'last_imported_at' => Carbon::now(),
@@ -176,6 +188,42 @@ class RoasterImporter
         ])->save();
 
         return $roaster->fresh('coffees.variants');
+    }
+
+    /**
+     * Soft-remove coffees that have been FULLY out of stock for at least
+     * STALE_OOS_DAYS. The missing-row soft-remove in syncCoffees only fires
+     * when a product vanishes from the feed; roasters that keep their
+     * sold-outs published (and re-list repeats as new products) defeat it, so
+     * their catalogue accumulates long-dead coffees and stale duplicate copies.
+     *
+     * A coffee qualifies when every variant is out of stock AND the most recent
+     * variant stock change (in_stock_changed_at — stamped whenever stock flips)
+     * is older than the cutoff. The remove is SOFT (removed_at), so user
+     * tastings survive and a genuine restock un-removes the row on the next
+     * import. This also clears the old copy of a re-listed coffee while leaving
+     * the current one in place.
+     */
+    private function pruneStaleOutOfStock(Roaster $roaster): void
+    {
+        $cutoff = Carbon::now()->subDays(self::STALE_OOS_DAYS);
+
+        foreach ($roaster->coffees()->whereNull('removed_at')->with('variants')->get() as $coffee) {
+            $variants = $coffee->variants;
+
+            // No variants, or any variant still in stock → not a stale
+            // sold-out; leave it alone.
+            if ($variants->isEmpty() || $variants->contains(fn ($v) => $v->in_stock)) {
+                continue;
+            }
+
+            // It became fully out of stock at its most recent variant
+            // stock-change. No timestamp anywhere → no staleness signal, keep.
+            $lastChange = $variants->pluck('in_stock_changed_at')->filter()->max();
+            if ($lastChange && $lastChange->lessThan($cutoff)) {
+                $coffee->forceFill(['removed_at' => Carbon::now()])->save();
+            }
+        }
     }
 
     /**
