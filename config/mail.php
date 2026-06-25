@@ -13,7 +13,10 @@ return [
     |
     */
 
-    'default' => env('MAIL_MAILER', 'smtp'),
+    // This app sends transactional mail exclusively through Resend (see the
+    // 'resend' mailer below). Default to it so a missing MAIL_MAILER never
+    // silently falls back to the unconfigured smtp/mailgun skeleton default.
+    'default' => env('MAIL_MAILER', 'resend'),
 
     /*
     |--------------------------------------------------------------------------
