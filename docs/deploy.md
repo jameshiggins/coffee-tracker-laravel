@@ -60,6 +60,7 @@ Set secrets:
 fly secrets set \
   APP_KEY=$(php artisan key:generate --show) \
   APP_URL=https://api.coffee.example.com \
+  MAIL_MAILER=resend \
   RESEND_KEY=re_... \
   MAIL_FROM_ADDRESS=hello@coffee.example.com \
   MAIL_FROM_NAME="Specialty Coffee Roasters" \
