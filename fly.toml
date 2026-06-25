@@ -37,6 +37,17 @@ console_command = 'php /var/www/html/artisan tinker'
   min_machines_running = 1
   processes = ['app']
 
+  # Gate rolling deploys on the app actually being healthy, not just the
+  # machine process starting. /up is HealthController: 200 healthy / 503
+  # degraded (DB, queue, etc.). grace_period is generous because
+  # docker/entrypoint.sh runs migrations on boot before the app serves.
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/up'
+
 [[mounts]]
   source = 'coffee_db'
   destination = '/data'
