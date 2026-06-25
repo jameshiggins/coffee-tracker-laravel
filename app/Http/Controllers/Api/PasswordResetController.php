@@ -20,7 +20,16 @@ class PasswordResetController extends Controller
     public function sendLink(Request $request): JsonResponse
     {
         $request->validate(['email' => 'required|email']);
-        Password::sendResetLink($request->only('email'));
+        // Best-effort send, for two reasons: (1) a dead mailer must not 500
+        // the endpoint (2026-06-10 outage class — mail was never configured
+        // in prod); (2) the send only ever happens for REGISTERED emails, so
+        // letting it throw turns "500 vs 200" into an account-enumeration
+        // oracle, defeating this endpoint's same-response-either-way contract.
+        try {
+            Password::sendResetLink($request->only('email'));
+        } catch (\Throwable $e) {
+            report($e);
+        }
         return response()->json(['ok' => true]);
     }
 

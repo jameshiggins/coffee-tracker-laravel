@@ -34,13 +34,31 @@ class AuthController extends Controller
         // Q15: ship a verification email immediately. The user gets a token
         // and can browse most of the app, but email-bound features (restock
         // alerts) skip them until they click the link.
-        $user->sendEmailVerificationNotification();
+        //
+        // Best-effort: the user row already exists at this point, so letting
+        // a mailer failure bubble up turns "verification email is late" into
+        // "registration 500s AND the email is now taken with no token issued"
+        // (prod outage 2026-06-10: Resend secrets were never configured, so
+        // every registration died here). The user can re-request the email
+        // via /email/verify/resend once mail is healthy.
+        // Track the outcome so the client knows too: report($e) tells ops
+        // (Sentry/logs), but a false flag lets the frontend surface a "we
+        // couldn't send your verification email — resend?" prompt instead of
+        // the user silently never receiving one.
+        $verificationEmailSent = true;
+        try {
+            $user->sendEmailVerificationNotification();
+        } catch (\Throwable $e) {
+            report($e);
+            $verificationEmailSent = false;
+        }
 
         $token = $user->createToken('web')->plainTextToken;
 
         return response()->json([
             'token' => $token,
             'user'  => $this->userPayload($user),
+            'verification_email_sent' => $verificationEmailSent,
         ], 201);
     }
 
