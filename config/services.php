@@ -25,6 +25,15 @@ return [
         'token' => env('POSTMARK_TOKEN'),
     ],
 
+    // Q18: Resend transactional driver (config/mail.php → 'resend' mailer).
+    // resend-laravel resolves its key as config('resend.api_key') (env
+    // RESEND_API_KEY) ?? config('services.resend.key'). The app standardizes
+    // on RESEND_KEY (see docs/deploy.md), so map it here — otherwise the
+    // transport finds no key and throws ApiKeyIsMissing on every send.
+    'resend' => [
+        'key' => env('RESEND_KEY'),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
