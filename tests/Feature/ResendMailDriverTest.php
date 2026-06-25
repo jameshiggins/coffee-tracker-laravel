@@ -63,6 +63,28 @@ class ResendMailDriverTest extends TestCase
         $this->app->make('resend');
     }
 
+    public function test_resend_is_the_default_mailer_when_mail_mailer_is_unset(): void
+    {
+        $original = $_ENV['MAIL_MAILER'] ?? null;
+        putenv('MAIL_MAILER');
+        unset($_ENV['MAIL_MAILER'], $_SERVER['MAIL_MAILER']);
+
+        try {
+            $mail = require base_path('config/mail.php');
+
+            $this->assertSame(
+                'resend',
+                $mail['default'],
+                'With MAIL_MAILER unset the app must default to Resend, not the unconfigured smtp skeleton default.'
+            );
+        } finally {
+            if ($original !== null) {
+                putenv("MAIL_MAILER={$original}");
+                $_ENV['MAIL_MAILER'] = $_SERVER['MAIL_MAILER'] = $original;
+            }
+        }
+    }
+
     /** Drop the cached singleton so the binding re-runs against overridden config. */
     private function forgetResendClient(): void
     {
