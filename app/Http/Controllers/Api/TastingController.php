@@ -22,6 +22,11 @@ class TastingController extends Controller
 
     public function publicForCoffee(Coffee $coffee): JsonResponse
     {
+        // Moderation consistency (2026-07 review P3): deactivating a roaster
+        // is a "hide" — the coffee + roaster detail endpoints 404 (H5), so
+        // the tastings sub-resource of a hidden roaster's coffee must too.
+        abort_if(! $coffee->roaster?->is_active, 404);
+
         $tastings = $coffee->tastings()
             ->where('is_public', true)
             ->with('user:id,display_name,avatar_url')
