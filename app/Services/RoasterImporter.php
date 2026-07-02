@@ -386,7 +386,10 @@ class RoasterImporter
         $payload = [
             'source_id' => $sourceId,
             'name' => CoffeeTextNormalizer::cleanCoffeeName($c['name']),
-            'origin' => CoffeeTextNormalizer::inferOrigin($c['name']),
+            // Honor a scraper-provided origin (the documented contract key in
+            // docs/developer-guide.md) before falling back to title inference
+            // — previously inference silently overwrote it (review P3).
+            'origin' => ($c['origin'] ?? null) ?: CoffeeTextNormalizer::inferOrigin($c['name']),
             'description' => $description,
             'tasting_notes' => ($c['tasting_notes'] ?? null) ?: $extractedNotes,
             'process' => ($c['process'] ?? null) ?: $extractedProcess,
