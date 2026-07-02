@@ -21,18 +21,41 @@ cd /var/www/html
 # Data-safety: snapshot the SQLite DB BEFORE migrating. The only irreplaceable
 # data (user tastings) lives in this single file on the volume; a bad or
 # irreversible migration is otherwise unrecoverable — an image rollback does
-# NOT revert a schema change already applied to the volume. Keep the 7 most
-# recent snapshots. Guarded so a backup hiccup never blocks boot.
+# NOT revert a schema change already applied to the volume.
+#
+# Rotation rules (both matter — 2026-07 review P1):
+#  - SKIP if a snapshot is <60 min old: a crash-looping boot must not churn
+#    fresh (already-mutated) snapshots through the retention window and evict
+#    the one good pre-migration copy.
+#  - Prune by AGE (7 days) with a hard cap of 14 newest, not count-only:
+#    count-based pruning deleted history in minutes under a restart loop.
+# Guarded so a backup hiccup never blocks boot.
 if [ -s "${DB_FILE}" ]; then
     BACKUP_DIR="${DB_DIR}/backups"
     mkdir -p "${BACKUP_DIR}"
-    if cp "${DB_FILE}" "${BACKUP_DIR}/database-$(date +%Y%m%d-%H%M%S).sqlite"; then
-        echo "[entrypoint] DB snapshot written before migrate."
+    RECENT="$(find "${BACKUP_DIR}" -name 'database-*.sqlite' -mmin -60 2>/dev/null | head -n 1 || true)"
+    if [ -n "${RECENT}" ]; then
+        echo "[entrypoint] Snapshot newer than 60 min exists; skipping (crash-loop guard)."
     else
-        echo "[entrypoint] WARNING: pre-migrate DB snapshot failed." >&2
+        STAMP="$(date +%Y%m%d-%H%M%S)"
+        if cp "${DB_FILE}" "${BACKUP_DIR}/database-${STAMP}.sqlite"; then
+            # WAL sidecar: with journal_mode=WAL, recent writes live in the
+            # -wal file until checkpoint — snapshot it too or lose them.
+            if [ -f "${DB_FILE}-wal" ]; then
+                cp "${DB_FILE}-wal" "${BACKUP_DIR}/database-${STAMP}.sqlite-wal" || true
+            fi
+            echo "[entrypoint] DB snapshot written before migrate."
+        else
+            echo "[entrypoint] WARNING: pre-migrate DB snapshot failed." >&2
+        fi
     fi
-    # Prune to the 7 most recent snapshots (|| true so pipefail can't block boot).
-    ls -1t "${BACKUP_DIR}"/database-*.sqlite 2>/dev/null | tail -n +8 | xargs -r rm -f || true
+    # Age prune: anything older than 7 days goes.
+    find "${BACKUP_DIR}" -name 'database-*.sqlite*' -mtime +7 -delete 2>/dev/null || true
+    # Size cap: keep the 14 newest .sqlite snapshots (and their -wal sidecars)
+    # so a busy week can't fill the volume the live DB shares.
+    ls -1t "${BACKUP_DIR}"/database-*.sqlite 2>/dev/null | tail -n +15 | while read -r OLD; do
+        rm -f "${OLD}" "${OLD}-wal" || true
+    done
 fi
 
 # Migrations are safe to re-run; --force skips the prod-confirm prompt.
