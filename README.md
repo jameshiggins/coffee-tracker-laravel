@@ -11,7 +11,7 @@ API + admin for a directory of Canadian specialty coffee roasters. Pairs with th
 
 ## Stack
 
-- Laravel 10, PHP 8.1+
+- Laravel 10, PHP 8.1+ (CI and the prod image run 8.2)
 - SQLite for dev (no external DB service needed)
 - Sanctum for API auth
 - Resend for transactional email (verification, password reset, restock alerts)
@@ -41,7 +41,7 @@ Refreshes coffee/variant data from each active roaster's storefront. Stable-ID u
 ## Tests
 
 ```bash
-php artisan test       # 200 PHPUnit tests
+php artisan test       # 500+ PHPUnit tests (see CI for the current count)
 ```
 
 CI runs on every push to `main`.

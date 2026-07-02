@@ -45,8 +45,12 @@ Plan three subdomains:
 In `coffee-tracker-laravel/`:
 
 ```
-fly launch --name coffee-tracker-api --region yyz --no-deploy
+fly launch --name coffee-tracker-laravel --region yyz --no-deploy
 ```
+
+(The name must match `app` in `fly.toml` — the live app is
+`coffee-tracker-laravel`; an earlier draft of this doc said
+`coffee-tracker-api`, which broke the rollback runbook below.)
 
 Edit `fly.toml` if needed. **This project runs SQLite in production**, on a
 Fly persistent volume mounted at `/data` (`docker/entrypoint.sh` runs
@@ -161,8 +165,8 @@ volume — restore the snapshot too.
 
 Fly:
 ```
-fly releases       # find the previous release ID
-fly deploy --image registry.fly.io/coffee-tracker-api:deployment-<id>
+fly releases -a coffee-tracker-laravel       # find the previous release ID
+fly deploy --image registry.fly.io/coffee-tracker-laravel:deployment-<id> -a coffee-tracker-laravel
 ```
 
 Vercel:

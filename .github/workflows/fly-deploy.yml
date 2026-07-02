@@ -20,6 +20,11 @@ jobs:
     concurrency: deploy-group    # ensure only one deploy runs at a time
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Deploy the EXACT commit CI just verified — a bare checkout grabs
+          # default-branch HEAD, which can be a newer commit whose own CI run
+          # is still pending (or red).
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only
         env:

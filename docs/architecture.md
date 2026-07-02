@@ -117,6 +117,7 @@ Six commands run on the in-container scheduler (`app/Console/Kernel.php`):
 | daily 11:30 | `reports:daily-ops` | daily ops summary email |
 | daily 14:00 | `alerts:restock` | wishlist back-in-stock emails |
 | Mon 13:00 | `reports:weekly-digest` | weekly data-quality audit email |
+| Mon 13:30 | `coffees:purge-non-coffee --apply` | weekly non-coffee catalogue sweep |
 | 1st 12:00 | `roasters:scrape-addresses` | monthly address / geocode sweep |
 | every 5 min | `scheduler-heartbeat` | bumps `scheduler.tick` for `/up` |
 
