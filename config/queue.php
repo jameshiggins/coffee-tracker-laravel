@@ -38,7 +38,10 @@ return [
             'driver' => 'database',
             'table' => 'jobs',
             'queue' => 'default',
-            'retry_after' => 90,
+            // Must exceed the longest job's $timeout (ImportRoasterJob: 300s)
+            // or a second/restarted worker re-reserves a still-running import
+            // and, with $tries=1, insta-fails it. 330 = timeout + 30s slack.
+            'retry_after' => 330,
             'after_commit' => false,
         ],
 
