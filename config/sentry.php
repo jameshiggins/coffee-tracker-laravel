@@ -57,19 +57,10 @@ return [
 
     // Defense-in-depth: strip credential-shaped keys from any event payload
     // before it leaves the process, regardless of where they were captured.
-    'before_send' => function (\Sentry\Event $event): ?\Sentry\Event {
-        $request = $event->getRequest();
-        if (isset($request['data']) && is_array($request['data'])) {
-            foreach (['password', 'password_confirmation', 'current_password', 'token'] as $key) {
-                if (array_key_exists($key, $request['data'])) {
-                    $request['data'][$key] = '[filtered]';
-                }
-            }
-            $event->setRequest($request);
-        }
-
-        return $event;
-    },
+    // MUST stay a static-callable array, never a closure: closures can't be
+    // var_export()ed, so `php artisan config:cache` (docker/entrypoint.sh
+    // runs it every boot) would fatal and crash-loop the machine.
+    'before_send' => [\App\Support\SentryScrubber::class, 'scrub'],
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#ignore_exceptions
     // 'ignore_exceptions' => [],
