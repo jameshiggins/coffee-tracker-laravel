@@ -9,14 +9,29 @@ use App\Models\Roaster;
 use App\Models\Tasting;
 use Closure;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class RoasterApiController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): SymfonyResponse
     {
+        // H6 interim (2026-07 review P2): server-side caching alone still
+        // re-transferred the full directory on every SPA visit. The ETag is
+        // the same content version that keys the server cache, so a matching
+        // If-None-Match short-circuits to an empty 304 before any DB/cache
+        // assembly work. max-age lets the browser skip even the revalidation
+        // round-trip for 5 minutes.
+        $etag = '"'.$this->directoryVersion().'"';
+        $cacheControl = 'public, max-age=300';
+
+        if (trim((string) $request->header('If-None-Match')) === $etag) {
+            return response('', 304, ['ETag' => $etag, 'Cache-Control' => $cacheControl]);
+        }
+
         // The whole directory changes at most a few times a day (the nightly
         // import + occasional admin edits), but this is the SPA's heaviest,
         // most-hit read. Cache the fully-assembled payload, keyed on a content
@@ -41,7 +56,7 @@ class RoasterApiController extends Controller
         // this defends against the existing tail of historical rows.
         return response()->json([
             'roasters' => $roasters,
-        ], 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
+        ], 200, ['ETag' => $etag, 'Cache-Control' => $cacheControl], JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     public function show(Roaster $roaster): JsonResponse
@@ -75,6 +90,9 @@ class RoasterApiController extends Controller
 
     private function directoryVersion(): string
     {
+        // Counts catch deletions that leave max(updated_at) untouched —
+        // e.g. admin-deleting a non-newest variant. Every table serialized
+        // into the payload needs BOTH signals (2026-07 review P3).
         return md5(implode('|', [
             (string) Roaster::max('updated_at'),
             (string) Coffee::max('updated_at'),
@@ -82,6 +100,7 @@ class RoasterApiController extends Controller
             (string) Tasting::max('updated_at'),
             (string) Roaster::count(),
             (string) Coffee::count(),
+            (string) CoffeeVariant::count(),
             (string) Tasting::count(),
         ]));
     }
