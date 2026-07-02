@@ -33,6 +33,7 @@ class HealthController extends Controller
             'scheduler' => $this->checkScheduler(),
             'mail' => $this->checkMail(),
             'imports' => $this->checkImports(),
+            'queue' => $this->checkQueue(),
         ];
 
         // Only infrastructure failures (database, scheduler) page the monitor.
@@ -74,6 +75,30 @@ class HealthController extends Controller
             'detail' => $stale ? 'stale' : 'ticking',
             'last_tick' => $last->toIso8601String(),
         ];
+    }
+
+    /**
+     * Informational (never flips the probe): a wedged queue:work was
+     * previously invisible until an admin import silently never landed
+     * (2026-07 review P3). Surfaces backlog depth, how stale the oldest
+     * waiting job is, and the failed_jobs count for a quick glance.
+     */
+    private function checkQueue(): array
+    {
+        try {
+            $pending = DB::table('jobs')->whereNull('reserved_at')->count();
+            $oldest = DB::table('jobs')->whereNull('reserved_at')->min('available_at');
+            $failed = DB::table('failed_jobs')->count();
+
+            return [
+                'ok' => true,
+                'pending' => $pending,
+                'oldest_pending_seconds' => $oldest !== null ? max(0, Carbon::now()->getTimestamp() - (int) $oldest) : null,
+                'failed' => $failed,
+            ];
+        } catch (\Throwable) {
+            return ['ok' => true, 'detail' => 'unavailable'];
+        }
     }
 
     private function checkMail(): array

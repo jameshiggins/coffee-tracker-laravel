@@ -28,8 +28,32 @@ class HealthCheckTest extends TestCase
             ->assertJsonPath('checks.scheduler.ok', true)
             ->assertJsonStructure([
                 'ok', 'status', 'time',
-                'checks' => ['database', 'scheduler', 'mail', 'imports'],
+                'checks' => ['database', 'scheduler', 'mail', 'imports', 'queue'],
             ]);
+    }
+
+    public function test_queue_check_reports_backlog_and_failures_without_failing_the_probe(): void
+    {
+        SystemHeartbeat::ping('scheduler.tick');
+
+        // One waiting job (made available 120s ago) + one failed job.
+        \DB::table('jobs')->insert([
+            'queue' => 'default', 'payload' => '{}', 'attempts' => 0,
+            'reserved_at' => null,
+            'available_at' => Carbon::now()->subSeconds(120)->getTimestamp(),
+            'created_at' => Carbon::now()->subSeconds(120)->getTimestamp(),
+        ]);
+        \DB::table('failed_jobs')->insert([
+            'uuid' => 'test-uuid-1', 'connection' => 'database', 'queue' => 'default',
+            'payload' => '{}', 'exception' => 'boom', 'failed_at' => Carbon::now(),
+        ]);
+
+        $this->getJson('/up')
+            ->assertOk() // informational: backlog/failures never page the monitor
+            ->assertJsonPath('checks.queue.ok', true)
+            ->assertJsonPath('checks.queue.pending', 1)
+            ->assertJsonPath('checks.queue.failed', 1)
+            ->assertJsonPath('checks.queue.oldest_pending_seconds', fn ($s) => is_int($s) && $s >= 119);
     }
 
     public function test_treats_a_never_ticked_scheduler_as_pending_not_failing(): void
