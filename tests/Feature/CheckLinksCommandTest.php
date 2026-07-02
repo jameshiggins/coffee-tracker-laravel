@@ -175,6 +175,31 @@ class CheckLinksCommandTest extends TestCase
             ->assertExitCode(0);
     }
 
+    public function test_internal_address_urls_are_blocked_before_any_request_is_sent(): void
+    {
+        // SSRF guard: product_url / purchase_link come from scraped feeds, so
+        // a compromised roaster site can plant internal literals. The probe
+        // must classify them BROKEN without ever connecting.
+        $r = $this->makeRoaster(['website' => 'https://ok.example']);
+        $this->addCoffee($r, [
+            'name' => 'Evil',
+            'product_url' => 'http://169.254.169.254/latest/meta-data/',
+        ], ['http://[fdaa:0:1::3]/internal-probe']);
+
+        Http::fake(['ok.example*' => Http::response('', 200)]);
+
+        $this->artisan('roasters:check-links')
+            ->expectsOutputToContain('OK: 1')
+            ->expectsOutputToContain('BROKEN: 2')
+            ->assertExitCode(0);
+
+        $internalHits = [];
+        Http::recorded(function ($req) use (&$internalHits) {
+            if (! str_contains($req->url(), 'ok.example')) $internalHits[] = $req->url();
+        });
+        $this->assertSame([], $internalHits, 'blocked internal URLs must never be probed');
+    }
+
     public function test_only_flag_scopes_to_a_single_roaster(): void
     {
         $a = $this->makeRoaster(['name' => 'A', 'slug' => 'roaster-a', 'website' => 'https://a.example']);
