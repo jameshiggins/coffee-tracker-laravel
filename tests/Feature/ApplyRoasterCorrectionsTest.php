@@ -68,7 +68,13 @@ class ApplyRoasterCorrectionsTest extends TestCase
 
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
 
-        $this->assertSame('https://continuumcoffee.ca/', $r->fresh()->website);
+        // Origin-normalized (no trailing slash) so the fix compares equal to
+        // what the importer stores and the command stays idempotent.
+        $this->assertSame('https://continuumcoffee.ca', $r->fresh()->website);
+
+        // Idempotency: a second run must report the row as already correct.
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+        $this->assertSame('https://continuumcoffee.ca', $r->fresh()->website);
     }
 
     public function test_url_fix_repoints_agro_from_agroroasters_to_agrocoffee(): void
@@ -84,6 +90,81 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
 
         $this->assertSame('https://agrocoffee.com', $r->fresh()->website);
+    }
+
+    public function test_url_fix_repoints_the_four_dead_domain_roasters(): void
+    {
+        // 2026-06-10 sweep: stored domains were NXDOMAIN (jjbean.ca,
+        // anarchycoffee.ca, foglifter.ca) or a brochure site with no
+        // storefront API (mojacoffee.com), so the daily import errored
+        // forever and JJ Bean served stale seed data in prod.
+        $this->makeRoaster(['name' => 'JJ Bean', 'slug' => 'jj-bean', 'website' => 'https://jjbean.ca']);
+        $this->makeRoaster(['name' => 'Anarchy Coffee Roasters', 'slug' => 'anarchy-coffee-roasters', 'website' => 'https://anarchycoffee.ca']);
+        $this->makeRoaster(['name' => 'Foglifter Coffee Roasters', 'slug' => 'foglifter-coffee-roasters', 'website' => 'https://foglifter.ca']);
+        $this->makeRoaster(['name' => 'Moja Coffee', 'slug' => 'moja-coffee', 'website' => 'https://mojacoffee.com']);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $this->assertSame('https://jjbeancoffee.com', Roaster::where('slug', 'jj-bean')->value('website'));
+        $this->assertSame('https://anarchycoffeeroasters.com', Roaster::where('slug', 'anarchy-coffee-roasters')->value('website'));
+        $this->assertSame('https://www.fogliftercoffee.com', Roaster::where('slug', 'foglifter-coffee-roasters')->value('website'));
+        $this->assertSame('https://shop.mojacoffee.com', Roaster::where('slug', 'moja-coffee')->value('website'));
+    }
+
+    public function test_url_fix_repoints_the_three_moved_storefront_roasters(): void
+    {
+        // 2026-06-10 empty-import sweep: domains alive but the storefront
+        // moved — legacy WP with purchasing disabled (De Mello), brochure
+        // site with the shop on a subdomain (Myriade), bare domain 301ing
+        // to a broken wp-signup page (Modus).
+        $this->makeRoaster(['name' => 'De Mello Coffee', 'slug' => 'de-mello-coffee', 'website' => 'https://www.demellocoffee.com']);
+        $this->makeRoaster(['name' => 'Café Myriade', 'slug' => 'cafe-myriade', 'website' => 'https://cafemyriade.com']);
+        $this->makeRoaster(['name' => 'Modus', 'slug' => 'modus', 'website' => 'https://moduscoffee.com']);
+
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $this->assertSame('https://hellodemello.com', Roaster::where('slug', 'de-mello-coffee')->value('website'));
+        $this->assertSame('https://shop.cafemyriade.com', Roaster::where('slug', 'cafe-myriade')->value('website'));
+        $this->assertSame('https://www.moduscoffee.com', Roaster::where('slug', 'modus')->value('website'));
+    }
+
+    public function test_moved_storefront_migration_repoints_only_rows_still_on_the_stale_url(): void
+    {
+        $stale = $this->makeRoaster(['name' => 'De Mello Coffee', 'slug' => 'de-mello-coffee', 'website' => 'https://www.demellocoffee.com', 'platform' => 'woocommerce']);
+        $edited = $this->makeRoaster(['name' => 'Modus', 'slug' => 'modus', 'website' => 'https://hand-edited.example', 'platform' => 'woocommerce']);
+
+        $migration = require database_path('migrations/2026_06_10_100000_fix_moved_roaster_storefront_urls.php');
+        $migration->up();
+
+        $stale->refresh();
+        $this->assertSame('https://hellodemello.com', $stale->website);
+        $this->assertNull($stale->platform, 'platform cache must reset so the next import re-probes the new host');
+        $this->assertSame('https://hand-edited.example', $edited->fresh()->website, 'hand-edited row must survive');
+
+        // Idempotent: a second run matches zero rows.
+        $migration->up();
+        $this->assertSame('https://hellodemello.com', $stale->fresh()->website);
+    }
+
+    public function test_dead_domain_migration_repoints_only_rows_still_on_the_dead_url(): void
+    {
+        // The data-fix migration ran during RefreshDatabase setup (before
+        // these rows existed), so exercise its logic directly: it must move
+        // rows parked on the exact dead URL and leave hand-edited rows alone.
+        $stale = $this->makeRoaster(['name' => 'JJ Bean', 'slug' => 'jj-bean', 'website' => 'https://jjbean.ca', 'platform' => 'shopify']);
+        $edited = $this->makeRoaster(['name' => 'Moja Coffee', 'slug' => 'moja-coffee', 'website' => 'https://hand-edited.example', 'platform' => 'shopify']);
+
+        $migration = require database_path('migrations/2026_06_10_000000_fix_dead_roaster_website_urls.php');
+        $migration->up();
+
+        $stale->refresh();
+        $this->assertSame('https://jjbeancoffee.com', $stale->website);
+        $this->assertNull($stale->platform, 'platform cache must reset so the next import re-probes');
+        $this->assertSame('https://hand-edited.example', $edited->fresh()->website, 'hand-edited row must survive');
+
+        // Idempotent: a second run matches zero rows and changes nothing.
+        $migration->up();
+        $this->assertSame('https://jjbeancoffee.com', $stale->fresh()->website);
     }
 
     // ── D) Manual address overrides ──────────────────────────────────────

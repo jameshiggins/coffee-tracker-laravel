@@ -555,6 +555,10 @@ final class Shared
                               // first, so a "Dark"-coloured hoodie can't slip through.
                               'light', 'medium', 'dark', 'very dark',
                               'light roast', 'medium roast', 'dark roast',
+                              // "Full City" is roast-level taxonomy too — Midnight Sun
+                              // categorizes its Colombian under a bare "Full City"
+                              // category with no other coffee marker in the feed.
+                              'full city',
                               // Growing-region taxonomy from the same roaster style.
                               // These are coffee-specific in this context — a merch
                               // product on a roaster's site wouldn't be tagged
@@ -585,7 +589,13 @@ final class Shared
         // mean "this is coffee" — bare brew-method words (filter, espresso,
         // drip) are excluded because those are exactly the ones that
         // collided with gear-accessory tags.
-        if (preg_match('/\b(coffees?|decaf|single[\s-]origin|whole[\s-]bean|roasted\s+(?:coffee|beans?))\b/u', $tagStr)) {
+        // Qualified "<kind> Blends" category names ("Signature Blends",
+        // "House Blends", "Espresso Blends") — Midnight Sun's house coffees
+        // carry ONLY a "Signature Blends" category, which neither the exact
+        // 'blend' token above nor the noun regex below matched. Deliberately
+        // NOT a bare `blends?` — that would let a "Tea Blends" / "Herbal
+        // Blends" tag through; the qualifier keeps it unambiguous coffee.
+        if (preg_match('/\b(coffees?|decaf|single[\s-]origin|whole[\s-]bean|roasted\s+(?:coffee|beans?)|(?:signature|house|coffee|espresso|seasonal)\s+blends?)\b/u', $tagStr)) {
             return true;
         }
         // 3) title literally mentions coffee/blend/espresso/etc.

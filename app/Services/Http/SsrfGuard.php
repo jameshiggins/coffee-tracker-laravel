@@ -105,10 +105,13 @@ final class SsrfGuard
         }
 
         // Carrier-grade NAT (100.64.0.0/10) isn't covered by the reserved
-        // flags but is non-public for our purposes.
+        // flags but is non-public for our purposes. Range compare instead of
+        // a 0xFFC00000 bitmask: the mask literal overflows to float on 32-bit
+        // PHP (deprecation spam on every request + lossy masking), while both
+        // range bounds fit a signed 32-bit int on every platform.
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
             $long = ip2long($ip);
-            if ($long !== false && ($long & 0xFFC00000) === (ip2long('100.64.0.0') & 0xFFC00000)) {
+            if ($long !== false && $long >= ip2long('100.64.0.0') && $long <= ip2long('100.127.255.255')) {
                 return true;
             }
         }

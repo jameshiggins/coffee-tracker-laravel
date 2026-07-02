@@ -31,6 +31,10 @@ class SsrfProtectionTest extends TestCase
             'rfc1918 172.16/12' => ['172.16.5.5'],
             'rfc1918 192.168/16' => ['192.168.1.1'],
             'cgnat 100.64/10' => ['100.64.0.1'],
+            // Boundary pins for the range-compare rewrite: an off-by-one in
+            // either bound passes the single mid-range case above.
+            'cgnat low edge' => ['100.64.0.0'],
+            'cgnat high edge' => ['100.127.255.255'],
             'unspecified' => ['0.0.0.0'],
             'loopback v6' => ['::1'],
             'ula v6' => ['fd00::1'],
@@ -51,6 +55,10 @@ class SsrfProtectionTest extends TestCase
             'cloudflare dns' => ['1.1.1.1'],
             'public host' => ['93.184.216.34'],
             'cloudflare v6' => ['2606:4700:4700::1111'],
+            // CGN range boundaries from the PUBLIC side: one below the low
+            // bound and one past the high bound must stay allowed.
+            'just below cgnat' => ['100.63.255.255'],
+            'just above cgnat' => ['100.128.0.0'],
         ];
     }
 

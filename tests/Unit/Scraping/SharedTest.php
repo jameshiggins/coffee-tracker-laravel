@@ -375,6 +375,13 @@ class SharedTest extends TestCase
             'roasted coffee beans tag'     => ['Peru Cajamarca', '', ['Roasted Coffee Beans']],
             'decaf coffee tag'             => ['Brazil Cerrado', '', ['Decaf Coffee']],
             'compound among region tags'   => ['Sumatra Mandheling', '', ['Indonesia', 'Whole Bean Coffee']],
+            // Qualified "<kind> Blends" categories — Midnight Sun's house
+            // coffees carry ONLY a "Signature Blends" category and a fanciful
+            // name with no coffee word ("Klondike Gold").
+            'signature blends category'    => ['Klondike Gold', 'Signature Blends', ['Signature Blends']],
+            'house blends category'        => ['Midnight Oil', '', ['House Blends']],
+            // Bare "Full City" roast-level category, fanciful-free title.
+            'full city roast category'     => ['Colombian', 'Full City', ['Full City']],
         ];
     }
 
@@ -399,6 +406,15 @@ class SharedTest extends TestCase
         // "filter" inside "smartrrfilter:brewers" is not a word boundary, so
         // the noun fallback can't match it (and there's no coffee noun here).
         $this->assertFalse(Shared::looksLikeCoffee('Tetra Dripper Stainless', 'Brewer', ['SmartrrFilter:Brewers']));
+    }
+
+    public function test_qualified_blends_tag_does_not_admit_tea_blends(): void
+    {
+        // The "<kind> Blends" positive is deliberately qualified — a bare
+        // `blends?` would have let tea sold under a "Tea Blends" / "Herbal
+        // Blends" category through whenever the title carries no tea word.
+        $this->assertFalse(Shared::looksLikeCoffee('Vanilla Dream', 'Tea Blends', ['Tea Blends']));
+        $this->assertFalse(Shared::looksLikeCoffee('Evening Calm', '', ['Herbal Blends']));
     }
 
     // ── looksLikeCoffee: "chocolate" as flavor descriptor vs product ──────
