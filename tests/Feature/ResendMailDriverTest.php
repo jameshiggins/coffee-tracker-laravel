@@ -63,8 +63,12 @@ class ResendMailDriverTest extends TestCase
         $this->app->make('resend');
     }
 
-    public function test_resend_is_the_default_mailer_when_mail_mailer_is_unset(): void
+    public function test_smtp2go_is_the_default_transport_when_mail_mailer_is_unset(): void
     {
+        // The real provider is SMTP2GO over plain SMTP (prod sets
+        // MAIL_MAILER=smtp explicitly; this pins the fallback). The host
+        // default must be SMTP2GO too — Laravel's skeleton pointed at
+        // smtp.mailgun.org, which has no credentials anywhere in this app.
         $original = $_ENV['MAIL_MAILER'] ?? null;
         putenv('MAIL_MAILER');
         unset($_ENV['MAIL_MAILER'], $_SERVER['MAIL_MAILER']);
@@ -73,9 +77,14 @@ class ResendMailDriverTest extends TestCase
             $mail = require base_path('config/mail.php');
 
             $this->assertSame(
-                'resend',
+                'smtp',
                 $mail['default'],
-                'With MAIL_MAILER unset the app must default to Resend, not the unconfigured smtp skeleton default.'
+                'With MAIL_MAILER unset the app must default to the configured smtp transport (SMTP2GO).'
+            );
+            $this->assertSame(
+                'mail.smtp2go.com',
+                $mail['mailers']['smtp']['host'],
+                'The smtp host default must be SMTP2GO, not the unconfigured mailgun skeleton.'
             );
         } finally {
             if ($original !== null) {

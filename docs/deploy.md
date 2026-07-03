@@ -1,7 +1,7 @@
 # Deployment
 
 Target stack: **Fly.io** for the Laravel API, **Vercel** for the React app
-and Docusaurus docs, **Cloudflare** for DNS, **Resend** for transactional
+and Docusaurus docs, **Cloudflare** for DNS, **SMTP2GO** for transactional
 email.
 
 This file is a checklist, not an automated script — most of these steps
@@ -14,7 +14,7 @@ You need accounts on:
 - [Fly.io](https://fly.io) — API hosting
 - [Vercel](https://vercel.com) — frontend + docs hosting
 - [Cloudflare](https://cloudflare.com) — DNS
-- [Resend](https://resend.com) — transactional email
+- [SMTP2GO](https://www.smtp2go.com) — transactional email
 - A domain registrar with the domain you want to use (e.g. Cloudflare Registrar)
 
 Plus CLI tools installed locally:
@@ -33,12 +33,21 @@ Plan three subdomains:
 - `api.coffee.example.com` — Laravel API (Fly.io)
 - `docs.coffee.example.com` — Docusaurus (Vercel)
 
-## Resend setup
+## SMTP2GO setup
 
-1. Create the project, add the sending domain
-2. Add the DKIM CNAME records to Cloudflare
-3. Wait for verification (Resend will email you when ready)
-4. Generate an API key — keep it for the Fly.io secrets step
+Transactional email goes out through [SMTP2GO](https://www.smtp2go.com) over
+plain SMTP (Laravel's `smtp` mailer — no SDK, no API key in the app).
+
+1. Add the sending domain under **Settings → Sender Domains** and add the
+   DNS records it gives you (SPF/DKIM CNAMEs) to Cloudflare; wait for Verified
+2. Create an SMTP user under **Settings → SMTP Users** — the SMTP
+   username/password pair is what goes into the Fly secrets (note: this is
+   NOT the same thing as an SMTP2GO API key)
+3. Connection: host `mail.smtp2go.com`, port **587** (TLS) — Fly.io blocks
+   outbound port 25; 2525 also works if 587 is ever filtered
+
+(A dormant `resend` mailer is still wired in config/mail.php should the
+provider ever change; it is not used.)
 
 ## Fly.io API deploy
 
@@ -64,8 +73,12 @@ Set secrets:
 fly secrets set \
   APP_KEY=$(php artisan key:generate --show) \
   APP_URL=https://api.coffee.example.com \
-  MAIL_MAILER=resend \
-  RESEND_KEY=re_... \
+  MAIL_MAILER=smtp \
+  MAIL_HOST=mail.smtp2go.com \
+  MAIL_PORT=587 \
+  MAIL_ENCRYPTION=tls \
+  MAIL_USERNAME=<smtp2go-smtp-user> \
+  MAIL_PASSWORD=<smtp2go-smtp-password> \
   MAIL_FROM_ADDRESS=hello@coffee.example.com \
   MAIL_FROM_NAME="Specialty Coffee Roasters" \
   SANCTUM_STATEFUL_DOMAINS=coffee.example.com \
@@ -232,7 +245,8 @@ The scheduler pings the base URL on success and `{url}/fail` on failure
 The single highest-value check. Mail only works if these are set on Fly:
 ```
 fly secrets list -a coffee-tracker-laravel   # names only; confirm presence
-# expect: MAIL_MAILER (=resend), RESEND_KEY, MAIL_FROM_ADDRESS, CRON_FAILURE_EMAIL
+# expect: MAIL_MAILER (=smtp), MAIL_HOST, MAIL_PORT, MAIL_ENCRYPTION,
+#         MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM_ADDRESS, CRON_FAILURE_EMAIL
 ```
 Send a live test, then confirm `mail.last_sent` updates on `/up`:
 ```
