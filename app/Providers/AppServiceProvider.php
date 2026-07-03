@@ -47,8 +47,24 @@ class AppServiceProvider extends ServiceProvider
 
             $connection->statement('PRAGMA busy_timeout = 5000;');
 
-            if ($connection->getDatabaseName() !== ':memory:') {
-                $connection->statement('PRAGMA journal_mode = WAL;');
+            if ($connection->getDatabaseName() === ':memory:') {
+                return;
+            }
+
+            // Converting to WAL needs an exclusive lock, and journal_mode is
+            // PERSISTENT for file databases — so convert once, skip when
+            // already converted, and never let a busy database (another
+            // connection mid-transaction, e.g. RefreshDatabase in the CI
+            // file-backed test run) fail the connection. Prod's first boot
+            // connection performs the one real conversion.
+            try {
+                $mode = $connection->selectOne('PRAGMA journal_mode')->journal_mode ?? '';
+                if (strtolower($mode) !== 'wal') {
+                    $connection->statement('PRAGMA journal_mode = WAL;');
+                }
+            } catch (\Throwable) {
+                // Best-effort: a locked DB keeps its current journal mode;
+                // busy_timeout above is the essential part.
             }
         });
     }
