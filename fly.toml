@@ -21,6 +21,10 @@ console_command = 'php /var/www/html/artisan tinker'
   SESSION_SECURE_COOKIE = 'true'
   DB_CONNECTION = 'sqlite'
   DB_DATABASE = '/data/database.sqlite'
+  # Convert the volume DB to WAL on boot (three concurrent writers: web,
+  # scheduler, queue worker). Deliberately NOT the default — tests/CI must
+  # never attempt the exclusive-lock conversion.
+  DB_SQLITE_WAL = 'true'
   # Heavy imports + transactional mail run on the queue worker started in
   # docker/entrypoint.sh, not inline on the web request.
   QUEUE_CONNECTION = 'database'

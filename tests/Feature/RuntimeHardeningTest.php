@@ -22,10 +22,14 @@ class RuntimeHardeningTest extends TestCase
         $this->assertSame(5000, (int) ($row->timeout ?? $row->busy_timeout ?? 0));
     }
 
-    public function test_file_backed_sqlite_connections_run_in_wal_mode(): void
+    public function test_file_backed_sqlite_connections_run_in_wal_mode_when_opted_in(): void
     {
-        // :memory: cannot use WAL, so exercise the listener against a real
-        // temp file the way prod's /data/database.sqlite connects.
+        // WAL conversion is opt-in via database.sqlite_wal (prod sets
+        // DB_SQLITE_WAL=true in fly.toml; tests/CI leave it off because the
+        // exclusive-lock conversion is unsafe under a test runner). Opt in
+        // here and exercise the listener against a real temp file the way
+        // prod's /data/database.sqlite connects on boot.
+        config(['database.sqlite_wal' => true]);
         $path = tempnam(sys_get_temp_dir(), 'waltest');
 
         config(['database.connections.waltest' => [

@@ -47,16 +47,19 @@ class AppServiceProvider extends ServiceProvider
 
             $connection->statement('PRAGMA busy_timeout = 5000;');
 
-            if ($connection->getDatabaseName() === ':memory:') {
+            // WAL conversion is opt-in via DB_SQLITE_WAL (set in fly.toml)
+            // and NEVER runs in tests/CI: converting needs an exclusive lock
+            // and proved genuinely unsafe under a test runner's many
+            // concurrent short-lived connections (CI hit both "database is
+            // locked" and "disk image is malformed"). In prod the flag is on
+            // and the first boot connection — the entrypoint's sequential
+            // `migrate`, before Apache/worker/scheduler exist — performs the
+            // one conversion; journal_mode is persistent, so every later
+            // connection reads 'wal' and skips.
+            if (! config('database.sqlite_wal') || $connection->getDatabaseName() === ':memory:') {
                 return;
             }
 
-            // Converting to WAL needs an exclusive lock, and journal_mode is
-            // PERSISTENT for file databases — so convert once, skip when
-            // already converted, and never let a busy database (another
-            // connection mid-transaction, e.g. RefreshDatabase in the CI
-            // file-backed test run) fail the connection. Prod's first boot
-            // connection performs the one real conversion.
             try {
                 $mode = $connection->selectOne('PRAGMA journal_mode')->journal_mode ?? '';
                 if (strtolower($mode) !== 'wal') {

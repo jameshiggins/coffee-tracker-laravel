@@ -33,9 +33,11 @@ cd /var/www/html
 if [ -s "${DB_FILE}" ]; then
     BACKUP_DIR="${DB_DIR}/backups"
     mkdir -p "${BACKUP_DIR}"
+    SNAP_OK=0
     RECENT="$(find "${BACKUP_DIR}" -name 'database-*.sqlite' -mmin -60 2>/dev/null | head -n 1 || true)"
     if [ -n "${RECENT}" ]; then
         echo "[entrypoint] Snapshot newer than 60 min exists; skipping (crash-loop guard)."
+        SNAP_OK=1
     else
         STAMP="$(date +%Y%m%d-%H%M%S)"
         if cp "${DB_FILE}" "${BACKUP_DIR}/database-${STAMP}.sqlite"; then
@@ -45,17 +47,24 @@ if [ -s "${DB_FILE}" ]; then
                 cp "${DB_FILE}-wal" "${BACKUP_DIR}/database-${STAMP}.sqlite-wal" || true
             fi
             echo "[entrypoint] DB snapshot written before migrate."
+            SNAP_OK=1
         else
             echo "[entrypoint] WARNING: pre-migrate DB snapshot failed." >&2
         fi
     fi
-    # Age prune: anything older than 7 days goes.
-    find "${BACKUP_DIR}" -name 'database-*.sqlite*' -mtime +7 -delete 2>/dev/null || true
-    # Size cap: keep the 14 newest .sqlite snapshots (and their -wal sidecars)
-    # so a busy week can't fill the volume the live DB shares.
-    ls -1t "${BACKUP_DIR}"/database-*.sqlite 2>/dev/null | tail -n +15 | while read -r OLD; do
-        rm -f "${OLD}" "${OLD}-wal" || true
-    done
+    # Prune ONLY when this boot has a good/fresh snapshot — a failed cp (e.g.
+    # disk full) must never be followed by deleting the existing history.
+    if [ "${SNAP_OK}" = "1" ]; then
+        # Age prune: anything older than 7 days goes.
+        find "${BACKUP_DIR}" -name 'database-*.sqlite*' -mtime +7 -delete 2>/dev/null || true
+        # Size cap: keep the 14 newest .sqlite snapshots (and their -wal
+        # sidecars) so a busy week can't fill the volume the live DB shares.
+        # The trailing `|| true` covers the whole pipeline: with no matches,
+        # ls exits 2 and pipefail would otherwise abort BOOT right here.
+        ls -1t "${BACKUP_DIR}"/database-*.sqlite 2>/dev/null | tail -n +15 | while read -r OLD; do
+            rm -f "${OLD}" "${OLD}-wal" || true
+        done || true
+    fi
 fi
 
 # Migrations are safe to re-run; --force skips the prod-confirm prompt.

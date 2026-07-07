@@ -14,7 +14,7 @@ API + admin for a directory of Canadian specialty coffee roasters. Pairs with th
 - Laravel 10, PHP 8.1+ (CI and the prod image run 8.2)
 - SQLite for dev (no external DB service needed)
 - Sanctum for API auth
-- Resend for transactional email (verification, password reset, restock alerts)
+- SMTP2GO for transactional email (verification, password reset, restock alerts)
 - Nominatim for geocoding (no API key)
 
 ## Run locally

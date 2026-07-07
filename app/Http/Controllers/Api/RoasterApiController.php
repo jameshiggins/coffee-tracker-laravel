@@ -25,7 +25,14 @@ class RoasterApiController extends Controller
         // If-None-Match short-circuits to an empty 304 before any DB/cache
         // assembly work. max-age lets the browser skip even the revalidation
         // round-trip for 5 minutes.
-        $etag = '"'.$this->directoryVersion().'"';
+        // Computed ONCE per request and passed down: it serves as both the
+        // ETag and the cache key, and recomputing (8 aggregate queries) per
+        // use doubled the hot path's query cost (review finding). A property
+        // memo is NOT safe here — Laravel reuses the controller instance on
+        // the route object, so it would leak across in-process requests
+        // (tests, Octane).
+        $version = $this->directoryVersion();
+        $etag = '"'.$version.'"';
         $cacheControl = 'public, max-age=300';
 
         if (trim((string) $request->header('If-None-Match')) === $etag) {
@@ -36,7 +43,7 @@ class RoasterApiController extends Controller
         // import + occasional admin edits), but this is the SPA's heaviest,
         // most-hit read. Cache the fully-assembled payload, keyed on a content
         // version so any write transparently busts it.
-        $roasters = $this->cacheDirectory('api:roasters:index', function () {
+        $roasters = $this->cacheDirectory('api:roasters:index', $version, function () {
             $roasters = Roaster::with(['coffees' => fn ($q) => $q->whereNull('removed_at'), 'coffees.variants'])
                 ->where('is_active', true)
                 ->orderBy('name')
@@ -79,13 +86,13 @@ class RoasterApiController extends Controller
      * under the test suite for determinism (the array cache store persists
      * across tests in-process and would collide on the version key).
      */
-    private function cacheDirectory(string $key, Closure $build): mixed
+    private function cacheDirectory(string $key, string $version, Closure $build): mixed
     {
         if (app()->runningUnitTests()) {
             return $build();
         }
 
-        return Cache::remember($key . ':' . $this->directoryVersion(), now()->addHours(6), $build);
+        return Cache::remember($key . ':' . $version, now()->addHours(6), $build);
     }
 
     private function directoryVersion(): string
@@ -114,7 +121,7 @@ class RoasterApiController extends Controller
      */
     public function stats(): JsonResponse
     {
-        return response()->json($this->cacheDirectory('api:stats', fn () => $this->buildStats()), 200);
+        return response()->json($this->cacheDirectory('api:stats', $this->directoryVersion(), fn () => $this->buildStats()), 200);
     }
 
     /** @return array<string, mixed> */
