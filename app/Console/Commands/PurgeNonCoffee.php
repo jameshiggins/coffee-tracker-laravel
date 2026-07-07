@@ -45,7 +45,11 @@ class PurgeNonCoffee extends Command
             ->withCount('tastings')
             ->whereNull('removed_at')
             ->get()
-            ->filter(fn (Coffee $c) => ! Shared::looksLikeCoffee((string) $c->name, '', []));
+            // Pass the stored description too: tea sold under innocent titles
+            // ("Chamomile", "Jade Cloud") is only detectable from its
+            // steeping-spec body, and this backstop is what clears rows that
+            // slipped in before the description check existed.
+            ->filter(fn (Coffee $c) => ! Shared::looksLikeCoffee((string) $c->name, '', [], (string) $c->description));
 
         if ($matches->isEmpty()) {
             $this->info('No non-coffee rows in the active catalog. Nothing to do.');

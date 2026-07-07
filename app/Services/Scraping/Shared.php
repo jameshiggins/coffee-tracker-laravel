@@ -111,14 +111,24 @@ final class Shared
      */
     public static function dedupeVariantsByGrams(array $variants): array
     {
+        // Grind-optioned shops (the Agro pattern) emit one variant per grind
+        // at the SAME bag size ("340g / Wholebean", …, "340g / French Press").
+        // Deep-linking any ground-coffee variant hands a whole-bean buyer a
+        // bag of pre-ground — so rank whole bean above everything, then
+        // availability. Ties keep the FIRST variant seen (shops list their
+        // default grind — typically whole bean — first; the old last-wins
+        // behavior is how prod ended up linking French Press).
         $byGrams = [];
+        $scores = [];
         foreach ($variants as $v) {
             if (!isset($v['grams'])) continue;
             $g = (int) $v['grams'];
-            $existing = $byGrams[$g] ?? null;
+            $isWholeBean = (bool) preg_match('/\bwhole[\s-]*beans?\b/i', (string) ($v['variant_title'] ?? ''));
             $available = (bool) ($v['available'] ?? true);
-            if ($existing && $existing['available'] && !$available) continue;
+            $score = ($isWholeBean ? 2 : 0) + ($available ? 1 : 0);
+            if (isset($byGrams[$g]) && $score <= $scores[$g]) continue;
             $byGrams[$g] = $v;
+            $scores[$g] = $score;
         }
         ksort($byGrams);
         return array_values($byGrams);
@@ -264,12 +274,32 @@ final class Shared
      * product_type="Filter"). So we accept brewing-method types AND fall
      * back to checking tags, which most Shopify roasters set explicitly.
      */
-    public static function looksLikeCoffee(string $title, string $productType = '', array $tags = []): bool
+    public static function looksLikeCoffee(string $title, string $productType = '', array $tags = [], string $description = ''): bool
     {
         $type = strtolower($productType);
         $titleLower = strtolower($title);
         $tagsLower = array_map(fn ($t) => strtolower(trim((string) $t)), $tags);
         $tagStr = ' ' . implode(' ', $tagsLower) . ' ';
+
+        // Tea/tisane leak (the Anchored pattern): an innocent title
+        // ("Chamomile", "Jade Cloud", "Irish Breakfast") with EMPTY
+        // product_type and tags — the only tell is the body, which reads as
+        // a steeping spec. Require a STRONG tea signal (steeping-spec
+        // vocabulary, the tea plant's botanical name) AND no coffee
+        // counter-signal anywhere: coffees that merely cite "black tea" as a
+        // tasting note don't match the strong signals, and coffee brew
+        // guides that say "steep" (AeroPress/French-press instructions)
+        // always also say coffee/roast/espresso.
+        if ($description !== '') {
+            $strongTea = '/\b(steep(?:ing)?\s+(?:temp|temperature|time)|steep\s+for\s+\d'
+                . '|camell?ia\s+sinensis|loose[\s-]?leaf|tisanes?'
+                . '|infusion\s+(?:aroma|colou?r)|herbal\s+(?:tea|blend|infusion))\b/iu';
+            $coffeeSignal = '/\b(coffee|roast(?:ed|ing|s)?|espresso|arabica|robusta|cupping)\b/iu';
+            if (preg_match($strongTea, $description)
+                && ! preg_match($coffeeSignal, $titleLower . ' ' . $description)) {
+                return false;
+            }
+        }
 
         // Hard exclusions by product type — gear, gift cards, classes, etc.
         // Bundle / sample-flight / instant / capsule pods aren't whole-bean
