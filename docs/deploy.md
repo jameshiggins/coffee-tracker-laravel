@@ -1,7 +1,7 @@
 # Deployment
 
 Target stack: **Fly.io** for the Laravel API, **Vercel** for the React app
-and Docusaurus docs, **Cloudflare** for DNS, **SMTP2GO** for transactional
+and Docusaurus docs, **Namecheap** for DNS, **SMTP2GO** for transactional
 email.
 
 This file is a checklist, not an automated script — most of these steps
@@ -13,9 +13,9 @@ first time.
 You need accounts on:
 - [Fly.io](https://fly.io) — API hosting
 - [Vercel](https://vercel.com) — frontend + docs hosting
-- [Cloudflare](https://cloudflare.com) — DNS
+- [Namecheap](https://www.namecheap.com) — DNS (Domain List → Manage → Advanced DNS)
 - [SMTP2GO](https://www.smtp2go.com) — transactional email
-- A domain registrar with the domain you want to use (e.g. Cloudflare Registrar)
+- A domain registrar with the domain you want to use (Namecheap doubles as ours)
 
 Plus CLI tools installed locally:
 - `flyctl` — `iwr https://fly.io/install.ps1 -useb | iex`
@@ -23,10 +23,13 @@ Plus CLI tools installed locally:
 
 ## DNS first
 
-Point the domain at Cloudflare:
-1. Add the domain to Cloudflare → copy the two NS records
-2. Update nameservers at the registrar to those NS records
-3. Wait for propagation (typically <1 hour)
+DNS lives at Namecheap: Domain List → Manage → **Advanced DNS** → Host
+Records. The domain stays on **Namecheap BasicDNS** (custom nameservers
+would move record management elsewhere). Two Namecheap quirks:
+- The Host field takes the subdomain WITHOUT the domain suffix — a record
+  shown elsewhere as `em1234.roastmap.ca` is entered as host `em1234`.
+- Propagation is usually minutes (default TTL 30 min), but allow up to an
+  hour before debugging a record.
 
 Plan three subdomains:
 - `coffee.example.com` — React app (Vercel)
@@ -39,7 +42,8 @@ Transactional email goes out through [SMTP2GO](https://www.smtp2go.com) over
 plain SMTP (Laravel's `smtp` mailer — no SDK, no API key in the app).
 
 1. Add the sending domain under **Settings → Sender Domains** and add the
-   DNS records it gives you (SPF/DKIM CNAMEs) to Cloudflare; wait for Verified
+   DNS records it gives you (SPF/DKIM CNAMEs) to Namecheap Advanced DNS
+   (hosts without the domain suffix); wait for Verified
 2. Create an SMTP user under **Settings → SMTP Users** — the SMTP
    username/password pair is what goes into the Fly secrets (note: this is
    NOT the same thing as an SMTP2GO API key)
@@ -106,7 +110,7 @@ Map the custom domain:
 ```
 fly certs add api.coffee.example.com
 ```
-Add the Cloudflare records that `fly certs show` prints.
+Add the records `fly certs show` prints to Namecheap Advanced DNS.
 
 ## Vercel React deploy
 
