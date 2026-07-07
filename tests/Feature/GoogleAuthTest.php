@@ -114,6 +114,33 @@ class GoogleAuthTest extends TestCase
             ->assertJsonPath('user.email', 'newuser@example.com');
     }
 
+    public function test_callback_redirects_gracefully_when_socialite_state_validation_fails(): void
+    {
+        // Denied consent / tampered or expired state / cookie loss all
+        // surface here — a public login funnel must degrade to the SPA's
+        // error param, never 500 (2026-07 review: untested failure branch).
+        Socialite::shouldReceive('driver->user')
+            ->andThrow(new \Laravel\Socialite\Two\InvalidStateException());
+
+        $response = $this->get('/auth/google/callback');
+
+        $response->assertStatus(302);
+        $this->assertStringContainsString('auth_error=1', (string) $response->headers->get('Location'));
+        $this->assertDatabaseCount('users', 0);
+    }
+
+    public function test_callback_redirects_gracefully_when_google_itself_errors(): void
+    {
+        Socialite::shouldReceive('driver->user')
+            ->andThrow(new \RuntimeException('Google token endpoint returned 500'));
+
+        $response = $this->get('/auth/google/callback');
+
+        $response->assertStatus(302);
+        $this->assertStringContainsString('auth_error=1', (string) $response->headers->get('Location'));
+        $this->assertDatabaseCount('users', 0);
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();

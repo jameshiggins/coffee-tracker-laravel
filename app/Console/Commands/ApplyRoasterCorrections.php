@@ -45,10 +45,35 @@ class ApplyRoasterCorrections extends Command
         ['match' => ['Luna', 'Luna Coffee'],                  'website' => 'https://enjoylunacoffee.com'],
         // .com was a near-empty stub site → only 1 coffee indexed.
         // .ca is the real shop with the full menu.
-        ['match' => ['Continuum', 'Continuum Coffee'],        'website' => 'https://continuumcoffee.ca/'],
+        // NOTE: no trailing slash — the importer stores Shared::origin()-
+        // normalized URLs (scheme://host), so a slashed entry never compares
+        // equal and the "fix" re-applies on every run (never idempotent).
+        ['match' => ['Continuum', 'Continuum Coffee'],        'website' => 'https://continuumcoffee.ca'],
         // agroroasters.com 301-redirects to agrocoffee.com — repoint so
         // the cascade doesn't chase the redirect every run.
         ['match' => ['Agro', 'Agro Roasters', 'Agro Coffee'], 'website' => 'https://agrocoffee.com'],
+        // 2026-06-10 dead-domain sweep: these four imported with error/empty
+        // status every day because the stored domain no longer resolves (or
+        // never hosted the shop). Each replacement verified live + scrapeable.
+        // jjbean.ca: NXDOMAIN. Real Shopify store is jjbeancoffee.com.
+        ['match' => ['JJ Bean', 'JJ Bean Coffee Roasters'],   'website' => 'https://jjbeancoffee.com'],
+        // anarchycoffee.ca: NXDOMAIN. Shopify store at anarchycoffeeroasters.com.
+        ['match' => ['Anarchy', 'Anarchy Coffee Roasters'],   'website' => 'https://anarchycoffeeroasters.com'],
+        // foglifter.ca: NXDOMAIN. Squarespace site at www.fogliftercoffee.com.
+        ['match' => ['Foglifter', 'Foglifter Coffee Roasters'], 'website' => 'https://www.fogliftercoffee.com'],
+        // mojacoffee.com serves the brochure site only (no storefront API);
+        // the Shopify shop lives on the shop. subdomain.
+        ['match' => ['Moja', 'Moja Coffee'],                  'website' => 'https://shop.mojacoffee.com'],
+        // 2026-06-10 empty-import sweep: live sites whose storefront moved.
+        // demellocoffee.com is the legacy WordPress site with purchasing
+        // disabled (every product price=0/"Read more"); the real Shopify
+        // store is hellodemello.com.
+        ['match' => ['De Mello', 'De Mello Coffee'],          'website' => 'https://hellodemello.com'],
+        // cafemyriade.com is the cafe site; the Shopify shop is on shop.
+        ['match' => ['Café Myriade', 'Cafe Myriade'],         'website' => 'https://shop.cafemyriade.com'],
+        // Bare moduscoffee.com 301s to a broken wp-signup.php multisite page;
+        // the WooCommerce store only answers on the www host.
+        ['match' => ['Modus', 'Modus Coffee'],                'website' => 'https://www.moduscoffee.com'],
     ];
 
     /**
@@ -365,6 +390,10 @@ class ApplyRoasterCorrections extends Command
 
             if (!$dry) {
                 $roaster->website = $fix['website'];
+                // Align with the guarded migrations: a new storefront usually
+                // means a new platform, so clear the cached detection and let
+                // the importer's self-heal re-detect on the next run.
+                $roaster->platform = null;
                 $roaster->save();
             }
             $n++;

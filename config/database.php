@@ -33,6 +33,15 @@ return [
     |
     */
 
+    /*
+    | SQLite WAL opt-in (see AppServiceProvider::configureSqliteForConcurrency).
+    | Prod sets DB_SQLITE_WAL=true (fly.toml) so the boot's first connection
+    | converts the file to WAL once. Off by default: the conversion needs an
+    | exclusive lock and is unsafe under a test runner's concurrent
+    | connections (CI hit "database is locked" / "disk image is malformed").
+    */
+    'sqlite_wal' => env('DB_SQLITE_WAL', false),
+
     'connections' => [
 
         'sqlite' => [

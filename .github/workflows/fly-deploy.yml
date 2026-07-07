@@ -1,17 +1,30 @@
 # See https://fly.io/docs/app-guides/continuous-deployment-with-github-actions/
+#
+# Deploy is gated on CI: it runs only after the "CI" workflow completes
+# SUCCESSFULLY on main, so a red build can never ship to production.
 
 name: Fly Deploy
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches:
       - main
 jobs:
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
-    concurrency: deploy-group    # optional: ensure only one action runs at a time
+    # Only proceed when the upstream CI run actually passed.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    concurrency: deploy-group    # ensure only one deploy runs at a time
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Deploy the EXACT commit CI just verified — a bare checkout grabs
+          # default-branch HEAD, which can be a newer commit whose own CI run
+          # is still pending (or red).
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only
         env:

@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
+use App\Services\Http\SafeHttp;
 use App\Services\Scraping\Address\ScrapedAddress;
-use App\Services\Scraping\Shared;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -14,10 +14,33 @@ use Illuminate\Support\Facades\Http;
  * roaster's address. We don't auto-geocode at scrape time — the
  * about-page scrape doesn't reliably surface street addresses, so admin
  * remains the source of truth.
+ *
+ * Nominatim's usage policy is a hard max of 1 request/second; exceeding it
+ * risks an IP block. throttle() enforces a >=1s gap between any two calls
+ * process-wide (no-op under tests so the suite stays fast).
  */
 class NominatimGeocoder
 {
     public const BASE = 'https://nominatim.openstreetmap.org/search';
+
+    private const MIN_INTERVAL_SECONDS = 1.0;
+
+    private static ?float $lastRequestAt = null;
+
+    /** Block until at least MIN_INTERVAL_SECONDS has passed since the last call. */
+    private function throttle(): void
+    {
+        if (app()->runningUnitTests()) {
+            return;
+        }
+        if (self::$lastRequestAt !== null) {
+            $wait = self::MIN_INTERVAL_SECONDS - (microtime(true) - self::$lastRequestAt);
+            if ($wait > 0) {
+                usleep((int) ($wait * 1_000_000));
+            }
+        }
+        self::$lastRequestAt = microtime(true);
+    }
 
     /**
      * Geocode "{street}, {city}, {region}, {country}" → ['lat'=>..., 'lng'=>...].
@@ -29,8 +52,8 @@ class NominatimGeocoder
         if ($query === '') return null;
 
         try {
-            $response = Http::timeout(10)
-                ->withOptions(Shared::clientOptions())
+            $this->throttle();
+            $response = SafeHttp::client(10)
                 ->withHeaders([
                     'User-Agent' => 'SpecialtyCoffeeRoasters/1.0 admin geocoder (contact: directory)',
                     'Accept-Language' => 'en',
@@ -71,8 +94,8 @@ class NominatimGeocoder
         if ($query === '') return null;
 
         try {
-            $response = Http::timeout(10)
-                ->withOptions(Shared::clientOptions())
+            $this->throttle();
+            $response = SafeHttp::client(10)
                 ->withHeaders([
                     'User-Agent' => 'SpecialtyCoffeeRoasters/1.0 admin geocoder (contact: directory)',
                     'Accept-Language' => 'en',

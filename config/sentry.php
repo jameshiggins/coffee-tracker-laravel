@@ -50,6 +50,18 @@ return [
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#send_default_pii
     'send_default_pii' => env('SENTRY_SEND_DEFAULT_PII', false),
 
+    // Never attach request bodies to events. Without this, an exception thrown
+    // during an auth POST (login / register / reset) could ship the raw
+    // `password` / `password_confirmation` / `token` fields to Sentry.
+    'max_request_body_size' => env('SENTRY_MAX_REQUEST_BODY_SIZE', 'none'),
+
+    // Defense-in-depth: strip credential-shaped keys from any event payload
+    // before it leaves the process, regardless of where they were captured.
+    // MUST stay a static-callable array, never a closure: closures can't be
+    // var_export()ed, so `php artisan config:cache` (docker/entrypoint.sh
+    // runs it every boot) would fatal and crash-loop the machine.
+    'before_send' => [\App\Support\SentryScrubber::class, 'scrub'],
+
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#ignore_exceptions
     // 'ignore_exceptions' => [],
 

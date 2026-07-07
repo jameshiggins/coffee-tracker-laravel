@@ -13,10 +13,14 @@ return [
     |
     */
 
-    // This app sends transactional mail exclusively through Resend (see the
-    // 'resend' mailer below). Default to it so a missing MAIL_MAILER never
-    // silently falls back to the unconfigured smtp/mailgun skeleton default.
-    'default' => env('MAIL_MAILER', 'resend'),
+    // This app sends transactional mail through SMTP2GO over plain SMTP
+    // (prod sets MAIL_MAILER=smtp + MAIL_HOST/USERNAME/PASSWORD as Fly
+    // secrets; see docs/deploy.md). Default to smtp — and default the host
+    // to SMTP2GO below — so a missing MAIL_MAILER points at the real
+    // provider, not Laravel's unconfigured mailgun skeleton. The 'resend'
+    // mailer further down is dormant (kept wired should the provider ever
+    // change back).
+    'default' => env('MAIL_MAILER', 'smtp'),
 
     /*
     |--------------------------------------------------------------------------
@@ -40,7 +44,8 @@ return [
         'smtp' => [
             'transport' => 'smtp',
             'url' => env('MAIL_URL'),
-            'host' => env('MAIL_HOST', 'smtp.mailgun.org'),
+            // SMTP2GO. Port 587 (TLS) — Fly.io blocks outbound port 25.
+            'host' => env('MAIL_HOST', 'mail.smtp2go.com'),
             'port' => env('MAIL_PORT', 587),
             'encryption' => env('MAIL_ENCRYPTION', 'tls'),
             'username' => env('MAIL_USERNAME'),
@@ -68,9 +73,9 @@ return [
             // ],
         ],
 
-        // Q18: Resend transactional email driver. Used for verify-email,
-        // password reset, email change, and restock alerts. Free tier
-        // covers v1 traffic (3000 emails/month). API key in RESEND_KEY.
+        // DORMANT — the app sends through SMTP2GO (the 'smtp' mailer above).
+        // Kept wired (key: RESEND_KEY via config/services.php) in case the
+        // provider ever changes; not selected by default and unused in prod.
         'resend' => [
             'transport' => 'resend',
         ],

@@ -47,7 +47,11 @@ return [
     |
     */
 
-    'expiration' => null,
+    // Bound token-at-rest exposure: a leaked bearer token (e.g. the OAuth
+    // token delivered in the callback URL) is no longer valid indefinitely.
+    // 90 days by default; the SPA refreshes by re-authenticating on a 401.
+    // Set SANCTUM_TOKEN_EXPIRATION=0/null to disable if needed.
+    'expiration' => env('SANCTUM_TOKEN_EXPIRATION', 60 * 24 * 90),
 
     /*
     |--------------------------------------------------------------------------

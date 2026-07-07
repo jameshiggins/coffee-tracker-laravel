@@ -18,7 +18,7 @@ The scheduled job `roasters:import-all` runs every day at 11:00 server time
 4. Soft-removes coffees that have disappeared from the source (preserves
    user tasting history; UI marks them "no longer sold")
 5. Stamps `last_imported_at`, `last_import_status` (`success` / `empty` /
-   `error` / `unsupported`), and `last_import_error`
+   `error`), and `last_import_error`
 6. Stamps `in_stock_changed_at` on variants that flipped from out → in
 
 Failures email `CRON_FAILURE_EMAIL` (or `MAIL_FROM_ADDRESS` if unset).
@@ -75,7 +75,7 @@ catalog endpoint we'll create the roaster and its first batch of coffees.
 
 On `/admin/roasters` each row shows:
 - **Last import status** — color-coded background (green=success, yellow=empty,
-  red=error, gray=unsupported)
+  red=error)
 - **Last imported at** — relative time
 - **Refresh** — re-runs the importer for that roaster
 - **Edit** — change name/city/region/website etc.

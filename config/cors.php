@@ -19,7 +19,15 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    // Pinned to the React SPA's origin (FRONTEND_URL) plus the local Vite dev
+    // ports. Bearer-token auth + supports_credentials=false means a wildcard
+    // was never an active vuln, but there is no reason to accept cross-origin
+    // calls from anywhere. Set FRONTEND_URL in prod (Fly secret).
+    'allowed_origins' => array_values(array_unique(array_filter([
+        env('FRONTEND_URL', 'http://localhost:5174'),
+        'http://localhost:5173',
+        'http://localhost:5174',
+    ]))),
 
     'allowed_origins_patterns' => [],
 

@@ -20,13 +20,11 @@
             'success'     => '#f1f9f1',
             'empty'       => '#fdfbe7',
             'error'       => '#fbe9e7',
-            'unsupported' => '#f0eef9',
         ];
         $statusLabel = [
             'success'     => '✓ Imported',
             'empty'       => '∅ Empty catalog',
             'error'       => '✗ Error',
-            'unsupported' => '? Unsupported platform',
         ];
     @endphp
 

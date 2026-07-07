@@ -104,6 +104,7 @@ currently being dropped" — a tripwire for a roaster site whose layout drifted.
 | daily 11:30 | `reports:daily-ops` | emails the daily ops summary (see below) |
 | daily 14:00 | `alerts:restock` | emails users whose wishlisted beans returned |
 | Mon 13:00 | `reports:weekly-digest` | deeper weekly data-quality audit email |
+| Mon 13:30 | `coffees:purge-non-coffee --apply` | weekly backstop soft-removing gear rows the filter now rejects |
 | 1st 12:00 | `roasters:scrape-addresses` | monthly address / geocode sweep |
 | every 5 min | `scheduler-heartbeat` | bumps `scheduler.tick` so `/up` can tell the scheduler is alive |
 

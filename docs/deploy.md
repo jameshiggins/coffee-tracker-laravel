@@ -1,7 +1,7 @@
 # Deployment
 
 Target stack: **Fly.io** for the Laravel API, **Vercel** for the React app
-and Docusaurus docs, **Cloudflare** for DNS, **Resend** for transactional
+and Docusaurus docs, **Cloudflare** for DNS, **SMTP2GO** for transactional
 email.
 
 This file is a checklist, not an automated script — most of these steps
@@ -14,7 +14,7 @@ You need accounts on:
 - [Fly.io](https://fly.io) — API hosting
 - [Vercel](https://vercel.com) — frontend + docs hosting
 - [Cloudflare](https://cloudflare.com) — DNS
-- [Resend](https://resend.com) — transactional email
+- [SMTP2GO](https://www.smtp2go.com) — transactional email
 - A domain registrar with the domain you want to use (e.g. Cloudflare Registrar)
 
 Plus CLI tools installed locally:
@@ -33,20 +33,33 @@ Plan three subdomains:
 - `api.coffee.example.com` — Laravel API (Fly.io)
 - `docs.coffee.example.com` — Docusaurus (Vercel)
 
-## Resend setup
+## SMTP2GO setup
 
-1. Create the project, add the sending domain
-2. Add the DKIM CNAME records to Cloudflare
-3. Wait for verification (Resend will email you when ready)
-4. Generate an API key — keep it for the Fly.io secrets step
+Transactional email goes out through [SMTP2GO](https://www.smtp2go.com) over
+plain SMTP (Laravel's `smtp` mailer — no SDK, no API key in the app).
+
+1. Add the sending domain under **Settings → Sender Domains** and add the
+   DNS records it gives you (SPF/DKIM CNAMEs) to Cloudflare; wait for Verified
+2. Create an SMTP user under **Settings → SMTP Users** — the SMTP
+   username/password pair is what goes into the Fly secrets (note: this is
+   NOT the same thing as an SMTP2GO API key)
+3. Connection: host `mail.smtp2go.com`, port **587** (TLS) — Fly.io blocks
+   outbound port 25; 2525 also works if 587 is ever filtered
+
+(A dormant `resend` mailer is still wired in config/mail.php should the
+provider ever change; it is not used.)
 
 ## Fly.io API deploy
 
 In `coffee-tracker-laravel/`:
 
 ```
-fly launch --name coffee-tracker-api --region yyz --no-deploy
+fly launch --name coffee-tracker-laravel --region yyz --no-deploy
 ```
+
+(The name must match `app` in `fly.toml` — the live app is
+`coffee-tracker-laravel`; an earlier draft of this doc said
+`coffee-tracker-api`, which broke the rollback runbook below.)
 
 Edit `fly.toml` if needed. **This project runs SQLite in production**, on a
 Fly persistent volume mounted at `/data` (`docker/entrypoint.sh` runs
@@ -60,8 +73,12 @@ Set secrets:
 fly secrets set \
   APP_KEY=$(php artisan key:generate --show) \
   APP_URL=https://api.coffee.example.com \
-  MAIL_MAILER=resend \
-  RESEND_KEY=re_... \
+  MAIL_MAILER=smtp \
+  MAIL_HOST=mail.smtp2go.com \
+  MAIL_PORT=587 \
+  MAIL_ENCRYPTION=tls \
+  MAIL_USERNAME=<smtp2go-smtp-user> \
+  MAIL_PASSWORD=<smtp2go-smtp-password> \
   MAIL_FROM_ADDRESS=hello@coffee.example.com \
   MAIL_FROM_NAME="Specialty Coffee Roasters" \
   SANCTUM_STATEFUL_DOMAINS=coffee.example.com \
@@ -134,17 +151,35 @@ After deploy, hit:
 
 ## CI
 
-Recommended (not yet set up):
-- GitHub Actions on push: run `php artisan test` and `npm run vitest`
-- Fail the merge if either suite fails
-- Auto-deploy `main` to Fly.io + Vercel via their respective GitHub integrations
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
+- `php artisan test` against SQLite (migrations + full suite)
+
+Deploy is **gated on CI**: `.github/workflows/fly-deploy.yml` triggers on the
+`CI` workflow completing, and only runs `flyctl deploy` when that run's
+conclusion was `success` — so a red build can't ship.
+
+Recommended next steps (not yet wired): static analysis (Larastan) and a code
+style check. NOTE: the codebase follows a deliberate house style that differs
+from Laravel Pint's defaults, so a `pint --test` gate would need a project
+`pint.json` (or a one-time repo-wide reformat) first — don't add it blindly.
 
 ## Rollback
 
+**Database snapshots.** The boot script (`docker/entrypoint.sh`) writes a
+timestamped copy of `/data/database.sqlite` to `/data/backups/` BEFORE running
+`migrate --force`, keeping the 7 most recent. To recover from a bad migration:
+```
+fly ssh console
+ls -1t /data/backups/                       # pick the snapshot from before the deploy
+cp /data/backups/database-<ts>.sqlite /data/database.sqlite
+```
+An image rollback alone does NOT undo a schema migration already applied to the
+volume — restore the snapshot too.
+
 Fly:
 ```
-fly releases       # find the previous release ID
-fly deploy --image registry.fly.io/coffee-tracker-api:deployment-<id>
+fly releases -a coffee-tracker-laravel       # find the previous release ID
+fly deploy --image registry.fly.io/coffee-tracker-laravel:deployment-<id> -a coffee-tracker-laravel
 ```
 
 Vercel:
@@ -210,7 +245,8 @@ The scheduler pings the base URL on success and `{url}/fail` on failure
 The single highest-value check. Mail only works if these are set on Fly:
 ```
 fly secrets list -a coffee-tracker-laravel   # names only; confirm presence
-# expect: MAIL_MAILER (=resend), RESEND_KEY, MAIL_FROM_ADDRESS, CRON_FAILURE_EMAIL
+# expect: MAIL_MAILER (=smtp), MAIL_HOST, MAIL_PORT, MAIL_ENCRYPTION,
+#         MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM_ADDRESS, CRON_FAILURE_EMAIL
 ```
 Send a live test, then confirm `mail.last_sent` updates on `/up`:
 ```

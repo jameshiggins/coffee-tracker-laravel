@@ -205,7 +205,7 @@ class DailyOpsSummaryTest extends TestCase
             ->expectsOutputToContain('action needed')
             ->assertExitCode(0);
 
-        Mail::assertSent(DailyOpsSummary::class);
+        Mail::assertQueued(DailyOpsSummary::class);
     }
 
     public function test_command_honors_email_override(): void
@@ -219,7 +219,7 @@ class DailyOpsSummaryTest extends TestCase
             ->expectsOutputToContain('all clear')
             ->assertExitCode(0);
 
-        Mail::assertSent(DailyOpsSummary::class, fn ($mail) => $mail->hasTo('ops@roastmap.ca'));
+        Mail::assertQueued(DailyOpsSummary::class, fn ($mail) => $mail->hasTo('ops@roastmap.ca'));
     }
 
     public function test_only_when_notable_skips_a_clean_day(): void
@@ -233,7 +233,7 @@ class DailyOpsSummaryTest extends TestCase
             ->expectsOutputToContain('skipping send')
             ->assertExitCode(0);
 
-        Mail::assertNothingSent();
+        Mail::assertNothingQueued();
     }
 
     public function test_only_when_notable_still_sends_when_notable(): void
@@ -244,7 +244,7 @@ class DailyOpsSummaryTest extends TestCase
         $this->artisan('reports:daily-ops', ['--only-when-notable' => true])
             ->assertExitCode(0);
 
-        Mail::assertSent(DailyOpsSummary::class);
+        Mail::assertQueued(DailyOpsSummary::class);
     }
 
     public function test_dry_run_prints_without_sending(): void
@@ -256,6 +256,6 @@ class DailyOpsSummaryTest extends TestCase
             ->expectsOutputToContain('"roasters_added"')
             ->assertExitCode(0);
 
-        Mail::assertNothingSent();
+        Mail::assertNothingQueued();
     }
 }

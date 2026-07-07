@@ -10,9 +10,14 @@ class TrustProxies extends Middleware
     /**
      * The trusted proxies for this application.
      *
+     * Trust all proxies: the app only ever runs behind the Fly edge proxy
+     * (single hop), so honoring X-Forwarded-* is required for $request->ip()
+     * to be the real client IP (rate limiting, Sentry, logs) and for the
+     * scheme to be detected as https.
+     *
      * @var array<int, string>|string|null
      */
-    protected $proxies;
+    protected $proxies = '*';
 
     /**
      * The headers that should be used to detect proxies.

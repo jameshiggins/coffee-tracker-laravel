@@ -163,7 +163,7 @@ class WeeklyDataQualityDigestTest extends TestCase
             ->expectsOutputToContain('issues flagged')
             ->assertExitCode(0);
 
-        Mail::assertSent(WeeklyDataQualityDigest::class);
+        Mail::assertQueued(WeeklyDataQualityDigest::class);
     }
 
     public function test_command_honors_email_override(): void
@@ -175,7 +175,7 @@ class WeeklyDataQualityDigestTest extends TestCase
             ->expectsOutputToContain('all clear')
             ->assertExitCode(0);
 
-        Mail::assertSent(WeeklyDataQualityDigest::class, fn ($mail) => $mail->hasTo('ops@roastmap.ca'));
+        Mail::assertQueued(WeeklyDataQualityDigest::class, fn ($mail) => $mail->hasTo('ops@roastmap.ca'));
     }
 
     public function test_dry_run_prints_without_sending(): void
@@ -187,6 +187,6 @@ class WeeklyDataQualityDigestTest extends TestCase
             ->expectsOutputToContain('"imports"')
             ->assertExitCode(0);
 
-        Mail::assertNothingSent();
+        Mail::assertNothingQueued();
     }
 }

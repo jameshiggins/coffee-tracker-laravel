@@ -2,6 +2,7 @@
 
 namespace App\Services\Scraping;
 
+use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -37,7 +38,7 @@ class ShippingPolicyScraper
 
         foreach (self::POLICY_PATHS as $path) {
             try {
-                $r = Http::timeout(8)->withOptions(Shared::clientOptions())->get($origin . $path);
+                $r = SafeHttp::client(8)->get($origin . $path);
                 if (!$r->ok()) continue;
                 $body = $r->body();
                 // Strip HTML to plain text

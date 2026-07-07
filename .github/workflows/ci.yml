@@ -48,3 +48,15 @@ jobs:
           DB_CONNECTION: sqlite
           DB_DATABASE: database/database.sqlite
         run: php artisan test
+
+      # docker/entrypoint.sh runs these on every prod boot under `set -e` —
+      # a config closure or unserializable route fatals there and crash-loops
+      # the machine. Exercise the exact same commands pre-merge.
+      - name: Production cache smoke (mirrors docker/entrypoint.sh)
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: database/database.sqlite
+        run: |
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache

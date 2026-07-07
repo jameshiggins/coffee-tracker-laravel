@@ -21,6 +21,13 @@ console_command = 'php /var/www/html/artisan tinker'
   SESSION_SECURE_COOKIE = 'true'
   DB_CONNECTION = 'sqlite'
   DB_DATABASE = '/data/database.sqlite'
+  # Convert the volume DB to WAL on boot (three concurrent writers: web,
+  # scheduler, queue worker). Deliberately NOT the default — tests/CI must
+  # never attempt the exclusive-lock conversion.
+  DB_SQLITE_WAL = 'true'
+  # Heavy imports + transactional mail run on the queue worker started in
+  # docker/entrypoint.sh, not inline on the web request.
+  QUEUE_CONNECTION = 'database'
 
 [http_service]
   internal_port = 8080
@@ -33,6 +40,17 @@ console_command = 'php /var/www/html/artisan tinker'
   auto_start_machines = true
   min_machines_running = 1
   processes = ['app']
+
+  # Gate rolling deploys on the app actually being healthy, not just the
+  # machine process starting. /up is HealthController: 200 healthy / 503
+  # degraded (DB, queue, etc.). grace_period is generous because
+  # docker/entrypoint.sh runs migrations on boot before the app serves.
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/up'
 
 [[mounts]]
   source = 'coffee_db'

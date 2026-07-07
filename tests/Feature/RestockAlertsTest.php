@@ -48,7 +48,7 @@ class RestockAlertsTest extends TestCase
 
         $this->artisan('alerts:restock')->assertExitCode(0);
 
-        Mail::assertSent(RestockDigest::class, function ($m) use ($user) {
+        Mail::assertQueued(RestockDigest::class, function ($m) use ($user) {
             return $m->hasTo($user->email);
         });
     }
@@ -62,7 +62,7 @@ class RestockAlertsTest extends TestCase
 
         $this->artisan('alerts:restock')->assertExitCode(0);
 
-        Mail::assertNotSent(RestockDigest::class);
+        Mail::assertNotQueued(RestockDigest::class);
     }
 
     public function test_skips_users_whose_wishlist_does_not_intersect_recent_restocks(): void
@@ -76,7 +76,7 @@ class RestockAlertsTest extends TestCase
         Wishlist::create(['user_id' => $user->id, 'coffee_id' => $other->id]);
 
         $this->artisan('alerts:restock')->assertExitCode(0);
-        Mail::assertNotSent(RestockDigest::class);
+        Mail::assertNotQueued(RestockDigest::class);
     }
 
     public function test_dry_run_writes_no_email(): void
@@ -87,7 +87,7 @@ class RestockAlertsTest extends TestCase
         Wishlist::create(['user_id' => $user->id, 'coffee_id' => $coffee->id]);
 
         $this->artisan('alerts:restock', ['--dry-run' => true])->assertExitCode(0);
-        Mail::assertNotSent(RestockDigest::class);
+        Mail::assertNotQueued(RestockDigest::class);
     }
 
     public function test_skips_soft_removed_coffees(): void
@@ -99,7 +99,7 @@ class RestockAlertsTest extends TestCase
         Wishlist::create(['user_id' => $user->id, 'coffee_id' => $coffee->id]);
 
         $this->artisan('alerts:restock')->assertExitCode(0);
-        Mail::assertNotSent(RestockDigest::class);
+        Mail::assertNotQueued(RestockDigest::class);
     }
 
     public function test_no_recent_restocks_short_circuits(): void
@@ -111,6 +111,6 @@ class RestockAlertsTest extends TestCase
         Wishlist::create(['user_id' => $user->id, 'coffee_id' => $v->coffee_id]);
 
         $this->artisan('alerts:restock')->assertExitCode(0);
-        Mail::assertNotSent(RestockDigest::class);
+        Mail::assertNotQueued(RestockDigest::class);
     }
 }

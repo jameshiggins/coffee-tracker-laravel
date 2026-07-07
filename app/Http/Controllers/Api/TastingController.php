@@ -22,10 +22,16 @@ class TastingController extends Controller
 
     public function publicForCoffee(Coffee $coffee): JsonResponse
     {
+        // Moderation consistency (2026-07 review P3): deactivating a roaster
+        // is a "hide" — the coffee + roaster detail endpoints 404 (H5), so
+        // the tastings sub-resource of a hidden roaster's coffee must too.
+        abort_if(! $coffee->roaster?->is_active, 404);
+
         $tastings = $coffee->tastings()
             ->where('is_public', true)
             ->with('user:id,display_name,avatar_url')
             ->orderByDesc('tasted_on')
+            ->limit(100) // unauthenticated, unbounded feed → cap it
             ->get();
 
         return response()->json([
@@ -64,7 +70,7 @@ class TastingController extends Controller
             'rating'      => 'nullable|integer|min:1|max:10',
             'notes'       => 'nullable|string|max:5000',
             'brew_method' => 'nullable|string|max:50',
-            'tasted_on'   => 'required|date',
+            'tasted_on'   => 'required|date|before_or_equal:today',
             'is_public'   => 'sometimes|boolean',
         ]);
         $data['user_id'] = $user->id;
@@ -88,7 +94,7 @@ class TastingController extends Controller
             'rating'      => 'nullable|integer|min:1|max:10',
             'notes'       => 'nullable|string|max:5000',
             'brew_method' => 'nullable|string|max:50',
-            'tasted_on'   => 'sometimes|date',
+            'tasted_on'   => 'sometimes|date|before_or_equal:today',
             'is_public'   => 'sometimes|boolean',
         ]);
         $tasting->update($data);

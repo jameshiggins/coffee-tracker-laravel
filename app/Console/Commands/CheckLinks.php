@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\Roaster;
+use App\Services\Http\BlockedUrlException;
+use App\Services\Http\SsrfGuard;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -147,6 +149,17 @@ class CheckLinks extends Command
      */
     private function probe(string $url): array
     {
+        // SSRF guard (2026-07 review P2): product_url / purchase_link arrive
+        // from scraped third-party feeds, so a compromised roaster site can
+        // plant internal literals (cloud metadata, Fly 6PN) and turn this
+        // operator-run sweep into a confused-deputy probe. Redirects are
+        // already disabled below, so one pre-flight check per URL suffices.
+        try {
+            SsrfGuard::assertUrlAllowed($url);
+        } catch (BlockedUrlException $e) {
+            return ['kind' => 'broken', 'error' => 'blocked: ' . substr($e->getMessage(), 0, 80)];
+        }
+
         $headers = [
             'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 roastmap-link-checker/1.0',
             'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -183,6 +196,9 @@ class CheckLinks extends Command
             $handle = $m[1];
             $jsonUrl = $base . '/products/' . $handle . '.json';
             try {
+                // Same-origin as the already-validated $url, but re-check —
+                // cheap, and keeps every outbound call behind the guard.
+                SsrfGuard::assertUrlAllowed($jsonUrl);
                 $jr = Http::timeout(self::TIMEOUT)
                     ->withHeaders($headers)
                     ->withOptions(['allow_redirects' => false])

@@ -3,6 +3,7 @@
 namespace App\Services\Scraping;
 
 use App\Services\CoffeeFieldExtractor;
+use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -27,6 +28,16 @@ class ShopifyScraper implements RoasterScraper
      */
     private const THIN_BODY_CHARS = 240;
 
+    /**
+     * Shopify's /products.json returns at most 250 products PER PAGE (coffee
+     * and gear interleaved — looksLikeCoffee() filtering happens after the
+     * fetch). A single un-paginated request silently drops the tail of any
+     * larger catalog, and the importer then soft-removes the dropped coffees,
+     * flipping in-stock beans to "removed". Rogue Wave (~730 products) is the
+     * canonical case. We paginate with ?page=N up to this cap.
+     */
+    private const MAX_PAGES = 10;
+
     public function platformKey(): string
     {
         return 'shopify';
@@ -36,7 +47,7 @@ class ShopifyScraper implements RoasterScraper
     {
         try {
             $endpoint = Shared::origin($url) . '/products.json?limit=1';
-            $response = Http::timeout(10)->withOptions(Shared::clientOptions())->acceptJson()->get($endpoint);
+            $response = SafeHttp::client(10)->acceptJson()->get($endpoint);
             if (!$response->ok()) return false;
             $body = $response->json();
             // Shopify returns {"products":[...]} on success even when empty.
@@ -48,12 +59,32 @@ class ShopifyScraper implements RoasterScraper
 
     public function fetch(string $url): array
     {
-        $endpoint = Shared::origin($url) . '/products.json?limit=250';
-        $response = Http::timeout(15)->withOptions(Shared::clientOptions())->acceptJson()->get($endpoint);
-        if (!$response->ok()) {
-            throw new RuntimeException("Shopify fetch failed: {$response->status()} for {$endpoint}");
+        $origin = Shared::origin($url);
+        $rawProducts = [];
+
+        for ($page = 1; $page <= self::MAX_PAGES; $page++) {
+            $endpoint = $origin . '/products.json?limit=250&page=' . $page;
+            $response = SafeHttp::client(15)->acceptJson()->get($endpoint);
+            if (!$response->ok()) {
+                // A first-page failure is a hard error (the store is down /
+                // not really Shopify); a later-page failure just ends
+                // pagination with whatever we already collected.
+                if ($page === 1) {
+                    throw new RuntimeException("Shopify fetch failed: {$response->status()} for {$endpoint}");
+                }
+                break;
+            }
+            $batch = $response->json()['products'] ?? [];
+            if (!is_array($batch) || $batch === []) {
+                break; // empty page = past the end
+            }
+            $rawProducts = array_merge($rawProducts, $batch);
+            if (count($batch) < 250) {
+                break; // short page = last page
+            }
         }
-        $coffees = $this->normalize($url, $response->json());
+
+        $coffees = $this->normalize($url, ['products' => $rawProducts]);
         return $this->enrichFromMetafields($coffees);
     }
 
@@ -91,7 +122,7 @@ class ShopifyScraper implements RoasterScraper
             if (CoffeeFieldExtractor::extractTastingNotes($description) !== null) continue;
 
             try {
-                $resp = Http::timeout(12)->withOptions(Shared::clientOptions())->get($productUrl);
+                $resp = SafeHttp::client(12)->get($productUrl);
                 if (!$resp->ok()) continue;
             } catch (\Throwable) {
                 continue;
