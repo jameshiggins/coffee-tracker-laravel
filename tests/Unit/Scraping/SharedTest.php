@@ -62,7 +62,84 @@ class SharedTest extends TestCase
         $this->assertTrue($result[0]['available']);
     }
 
+    public function test_dedupe_prefers_the_whole_bean_variant_among_same_size_grinds(): void
+    {
+        // The Agro pattern: one variant per grind at the same bag size, whole
+        // bean FIRST, French Press LAST. The old last-wins dedupe shipped the
+        // French Press deep link to a whole-bean buyer — a real prod incident.
+        $variants = [
+            ['grams' => 340, 'available' => true, 'price' => 24.0, 'variant_title' => '340g / Wholebean', 'tag' => 'WB'],
+            ['grams' => 340, 'available' => true, 'price' => 24.0, 'variant_title' => '340g / Espresso (No Refund/Exchange)', 'tag' => 'ESP'],
+            ['grams' => 340, 'available' => true, 'price' => 24.0, 'variant_title' => '340g / French Press (No Refund/Exchange)', 'tag' => 'FP'],
+        ];
+        $result = Shared::dedupeVariantsByGrams($variants);
+        $this->assertCount(1, $result);
+        $this->assertSame('WB', $result[0]['tag'], 'whole bean must win regardless of feed order');
+
+        // Also when whole bean is NOT first ("Whole Bean" spelled with a space).
+        $variants = [
+            ['grams' => 340, 'available' => true, 'price' => 24.0, 'variant_title' => '340g / Drip', 'tag' => 'DRIP'],
+            ['grams' => 340, 'available' => true, 'price' => 24.0, 'variant_title' => '340g / Whole Bean', 'tag' => 'WB'],
+        ];
+        $this->assertSame('WB', Shared::dedupeVariantsByGrams($variants)[0]['tag']);
+    }
+
+    public function test_dedupe_without_grind_titles_keeps_the_first_variant(): void
+    {
+        // No whole-bean signal anywhere → ties resolve to the FIRST seen
+        // (shops list their default option first), not the old last-wins.
+        $variants = [
+            ['grams' => 340, 'available' => true, 'price' => 24.0, 'tag' => 'FIRST'],
+            ['grams' => 340, 'available' => true, 'price' => 24.0, 'tag' => 'SECOND'],
+        ];
+        $this->assertSame('FIRST', Shared::dedupeVariantsByGrams($variants)[0]['tag']);
+    }
+
     // ── looksLikeCoffee ───────────────────────────────────────────────────
+
+    public function test_rejects_tea_sold_with_innocent_titles_via_steeping_spec_description(): void
+    {
+        // Real prod leak (Anchored): entire tea line with EMPTY product_type
+        // and tags, titles that carry zero tea signal — the body is the only
+        // tell. Descriptions below are the live shop's actual copy.
+        $chamomile = 'Soft florals, subtly sweet, and a calming finish. Ingredients Organic Chamomile '
+            . 'Specifications Serving Size : 2.5g /cup Steeping Temp : 100°C Steeping Time : 5 mins. '
+            . 'Origin : France / Albania / Croatia Caffeine : Caffeine Free Infusion Aroma : Floral';
+        $jadeCloud = 'Fresh mountain mist with a sweet umami finish. Ingredients Organic Green Tea (Camelia Sinensis) '
+            . 'Specifications Serving Size : 2.5g /cup Steeping Temp : 88°C Steeping Time: 1 to 2 mins.';
+        $earlGrey = 'Bold flavours, bright petals, and a hit of bergamot. Ingredients Black tea (Camelia Sinensis), '
+            . 'cornflower petals Specifications Steeping Temp : 100°C Steeping Time : 2 to 5 mins.';
+
+        $this->assertFalse(Shared::looksLikeCoffee('Chamomile', '', [], $chamomile));
+        $this->assertFalse(Shared::looksLikeCoffee('Jade Cloud', '', [], $jadeCloud));
+        $this->assertFalse(Shared::looksLikeCoffee('Earl Grey', '', [], $earlGrey));
+        $this->assertFalse(Shared::looksLikeCoffee('Irish Breakfast', '', [], $jadeCloud));
+    }
+
+    public function test_keeps_coffee_that_cites_tea_as_a_tasting_note(): void
+    {
+        // "black tea" as a flavour descriptor is everywhere in coffee copy
+        // (Luna/Monogram pattern) — it must NOT trip the tea rejection.
+        $desc = 'A washed Gesha from Alasitas. Notes of black tea, bergamot and honeysuckle. '
+            . 'Medium-light roast, best as filter.';
+        $this->assertTrue(Shared::looksLikeCoffee('Takesi Gesha', '', [], $desc));
+    }
+
+    public function test_keeps_coffee_whose_brew_guide_says_steep(): void
+    {
+        // French-press/AeroPress brew guides use "steep" — the coffee
+        // counter-signals (coffee/roast) must keep these in.
+        $desc = 'Our house espresso. Brew guide: add coffee, pour water, steep for 4 minutes, press. '
+            . 'Roasted for sweetness.';
+        $this->assertTrue(Shared::looksLikeCoffee('Nightcap', '', [], $desc));
+    }
+
+    public function test_description_check_is_inert_when_no_description_is_passed(): void
+    {
+        // Back-compat: all existing call sites that pass no description keep
+        // their exact previous behavior.
+        $this->assertTrue(Shared::looksLikeCoffee('Chamomile', '', []));
+    }
 
     public function test_looks_like_coffee_excludes_non_coffee_types(): void
     {

@@ -17,6 +17,62 @@ class ShopifyScraperTest extends TestCase
         $this->assertSame('shopify', $this->scraper()->platformKey());
     }
 
+    public function test_grind_optioned_products_deep_link_the_whole_bean_variant(): void
+    {
+        // The Agro incident: one Shopify variant per grind at each bag size,
+        // whole bean first, French Press last — the deep link must carry the
+        // WHOLE BEAN variant id, not whichever grind the feed lists last.
+        $payload = [
+            'products' => [[
+                'id' => 900, 'title' => 'Guatemala, Joyabaj | Honey', 'product_type' => 'Coffee',
+                'tags' => [], 'handle' => 'joyabaj-honey',
+                'body_html' => '<p>Honey processed. Notes of caramel.</p>',
+                'variants' => [
+                    ['id' => 1, 'title' => '340g / Wholebean', 'price' => '26.00', 'available' => true],
+                    ['id' => 2, 'title' => '340g / Espresso (No Refund/Exchange)', 'price' => '26.00', 'available' => true],
+                    ['id' => 3, 'title' => '340g / French Press (No Refund/Exchange)', 'price' => '26.00', 'available' => true],
+                    ['id' => 4, 'title' => '2lb / Wholebean', 'price' => '58.00', 'available' => true],
+                    ['id' => 5, 'title' => '2lb / French Press (No Refund/Exchange)', 'price' => '58.00', 'available' => true],
+                ],
+            ]],
+        ];
+
+        $result = $this->scraper()->normalize('https://shop.example', $payload);
+
+        $this->assertCount(1, $result);
+        $variants = $result[0]['variants'];
+        $this->assertCount(2, $variants, 'one variant per bag size');
+        $this->assertStringEndsWith('?variant=1', $variants[0]['purchase_link'], '340g links Wholebean, not French Press');
+        $this->assertStringEndsWith('?variant=4', $variants[1]['purchase_link'], '2lb links Wholebean');
+    }
+
+    public function test_tea_with_innocent_title_and_empty_metadata_is_rejected_by_its_body(): void
+    {
+        // The Anchored leak: a whole tea line with empty product_type/tags
+        // and titles like "Chamomile" — only the steeping-spec body gives
+        // it away. A coffee with a steep-based brew guide must survive.
+        $payload = [
+            'products' => [
+                [
+                    'id' => 1, 'title' => 'Chamomile', 'product_type' => '', 'tags' => [],
+                    'handle' => 'chamomile',
+                    'body_html' => '<p>Soft florals. Serving Size: 2.5g/cup. Steeping Temp: 100C. Steeping Time: 5 mins. Caffeine Free.</p><p>50g</p>',
+                    'variants' => [['id' => 11, 'title' => '50g', 'price' => '14.00', 'available' => true]],
+                ],
+                [
+                    'id' => 2, 'title' => 'Fruit Snacks', 'product_type' => '', 'tags' => [],
+                    'handle' => 'fruit-snacks',
+                    'body_html' => '<p>Juicy natural-process coffee. Brew guide: steep for 4 minutes in a French press.</p><p>250g</p>',
+                    'variants' => [['id' => 22, 'title' => '250g', 'price' => '24.00', 'available' => true]],
+                ],
+            ],
+        ];
+
+        $result = $this->scraper()->normalize('https://shop.example', $payload);
+
+        $this->assertSame(['Fruit Snacks'], array_column($result, 'name'), 'tea dropped, steep-brew-guide coffee kept');
+    }
+
     public function test_normalize_falls_back_to_body_html_grams_for_default_title_variants(): void
     {
         // Real-world: Botany Rd's Shopify feed has product titles like

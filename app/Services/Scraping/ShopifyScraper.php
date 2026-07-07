@@ -243,26 +243,26 @@ class ShopifyScraper implements RoasterScraper
             $productType = (string) ($p['product_type'] ?? '');
             $tags = is_array($p['tags'] ?? null) ? $p['tags'] : explode(',', (string) ($p['tags'] ?? ''));
 
-            if (!Shared::looksLikeCoffee($title, $productType, $tags)) continue;
+            // Plain-text body, computed BEFORE the coffee filter so the
+            // filter can catch tea sold with an innocent title and empty
+            // type/tags (steeping-spec descriptions are the only signal).
+            // Block tags become spaces first so "</p><p>250G</p>" keeps its
+            // word boundaries; reused below for the description + the
+            // body-grams fallback.
+            $plainBody = strip_tags(preg_replace('/<[^>]+>/', ' ', (string) ($p['body_html'] ?? '')));
+
+            if (!Shared::looksLikeCoffee($title, $productType, $tags, $plainBody)) continue;
 
             $productUrl = !empty($p['handle'])
                 ? $origin . '/products/' . $p['handle']
                 : null;
 
-            // Pre-compute a body_html-derived gram weight for the product —
-            // used as a last-resort fallback when neither variant title nor
-            // product title carry a parseable bag size. Botany Rd is the
-            // canonical case: variants are all "Default Title", product
-            // titles read "DORSIA | MILK BAR" / "ZOQUIÁPAM WASHED | MEXICO"
-            // with no grams, but the body_html includes "250G". Whitespace
-            // is collapsed first because some templates render the size as
-            // "2  50G" or "250  G" via formatting artifacts.
-            // Replace tags with a space BEFORE stripping, so "</p><p>250G</p>"
-            // becomes " 250G " not "Bag250G" (which would have no word boundary
-            // before the digit and parseGrams would miss it entirely).
-            $bodyForWeight = preg_replace('/\s+/', ' ', strip_tags(
-                preg_replace('/<[^>]+>/', ' ', (string) ($p['body_html'] ?? ''))
-            ));
+            // Body-derived gram weight — last-resort fallback when neither
+            // variant title nor product title carry a parseable bag size
+            // (Botany Rd pattern: "Default Title" variants, size only in the
+            // body). Whitespace collapsed because some templates render the
+            // size as "2  50G" via formatting artifacts.
+            $bodyForWeight = preg_replace('/\s+/', ' ', $plainBody);
             $bodyGrams = $this->parseBodyGrams($bodyForWeight);
 
             $rawVariants = [];
@@ -297,6 +297,10 @@ class ShopifyScraper implements RoasterScraper
                     'source_id' => $variantId,
                     'purchase_link' => $variantPurchaseLink,
                     'source_size_label' => Shared::extractSourceSizeLabel($varTitle),
+                    // Raw title so dedupeVariantsByGrams can prefer the
+                    // whole-bean variant among same-size grind options
+                    // (never persisted — the importer ignores unknown keys).
+                    'variant_title' => $varTitle,
                 ];
             }
             $variants = Shared::dedupeVariantsByGrams($rawVariants);
@@ -311,12 +315,11 @@ class ShopifyScraper implements RoasterScraper
             $out[] = [
                 'name' => $title,
                 'source_id' => isset($p['id']) ? (string) $p['id'] : '',
-                // Replace block tags with a space BEFORE stripping so adjacent
-                // <p>Origin</p><p>Process</p> doesn't merge into "OriginProcess".
-                // RoasterImporter::cleanDescription then collapses the
-                // whitespace and trims; the intermediate space-padding is
-                // what saves the word boundary.
-                'description' => strip_tags(preg_replace('/<[^>]+>/', ' ', (string) ($p['body_html'] ?? ''))),
+                // $plainBody already replaced block tags with spaces before
+                // stripping, so adjacent <p>Origin</p><p>Process</p> keeps
+                // its word boundary; RoasterImporter::cleanDescription
+                // collapses the whitespace downstream.
+                'description' => $plainBody,
                 'image_url' => $imageUrl,
                 'product_url' => $productUrl,
                 'is_blend' => Shared::isBlend($title, $productType, $tags),
