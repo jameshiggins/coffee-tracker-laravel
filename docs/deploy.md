@@ -170,8 +170,13 @@ from Laravel Pint's defaults, so a `pint --test` gate would need a project
 ## Rollback
 
 **Database snapshots.** The boot script (`docker/entrypoint.sh`) writes a
-timestamped copy of `/data/database.sqlite` to `/data/backups/` BEFORE running
-`migrate --force`, keeping the 7 most recent. To recover from a bad migration:
+timestamped copy of `/data/database.sqlite` (plus its `-wal` sidecar) to
+`/data/backups/` BEFORE running `migrate --force`. Rotation rules: a boot
+SKIPS the snapshot when one newer than 60 min exists (so a crash loop can't
+churn good history out), prunes snapshots older than 7 days, and caps the
+dir at the 14 newest — and never prunes on a boot whose own snapshot failed
+(disk-full must not be followed by deleting history). To recover from a bad
+migration:
 ```
 fly ssh console
 ls -1t /data/backups/                       # pick the snapshot from before the deploy
@@ -206,8 +211,10 @@ out from a monitor — not from a user.
   that flip the status — a 503 means "page someone now."
 
 The body also reports **informational** checks that never cause a 503:
-`mail.last_sent` (when the transport last accepted a message) and
-`imports.errors` (active roasters whose last import failed). Acting on those
+`mail.last_sent` (when the transport last accepted a message),
+`imports.errors` (active roasters whose last import failed), and `queue`
+(pending jobs, age of the oldest waiting job, failed_jobs count — a wedged
+queue:work shows up here). Acting on those
 is the weekly digest's job, not an uptime page. No secrets are in the body,
 so it's safe to expose unauthenticated.
 

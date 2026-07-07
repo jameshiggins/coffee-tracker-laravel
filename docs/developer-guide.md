@@ -6,7 +6,7 @@
   DB on a Fly persistent volume at `/data/database.sqlite` — not Postgres)
 - **Frontend**: React 18 + Vite + Tailwind CSS (CDN, no build step)
 - **Auth**: Sanctum bearer tokens (pure-token, `'guard' => []`)
-- **Mail**: Resend transactional API
+- **Mail**: SMTP2GO over plain SMTP (Laravel's built-in `smtp` mailer; local dev uses the `log` mailer)
 - **Scraping**: strategy pattern over Shopify products.json, WooCommerce
   Store API, Squarespace `?format=json`, and a generic HTML JSON-LD fallback
 - **Geocoding**: OpenStreetMap Nominatim (free); optional Google Places
@@ -49,7 +49,7 @@ coffee-tracker-laravel/
     api.php                  # JSON API
     web.php                  # public + /up + admin
   tests/
-    Feature/ + Unit/         # 417 tests, 1062 assertions
+    Feature/ + Unit/         # 550+ tests (see CI for the current count)
 
 coffee-tracker-react/
   src/
@@ -123,8 +123,13 @@ Each `fetch()` returns coffees in this shape:
     // (not bag_weight_grams), `available` (not in_stock), and `source_id`
     // (not source_variant_id). Currency is not per-variant — it defaults to
     // CAD on the column. `source_size_label` is the friendly bag label.
+    // Optional `variant_title` is the RAW platform variant title; the
+    // shared dedupe uses it to prefer the whole-bean variant when a shop
+    // lists one variant per grind at the same bag size (the Agro pattern).
+    // It is never persisted.
     ['grams' => 340, 'price' => 24.50, 'available' => true,
-     'source_id' => '…', 'purchase_link' => '…', 'source_size_label' => '340 g'],
+     'source_id' => '…', 'purchase_link' => '…', 'source_size_label' => '340 g',
+     'variant_title' => '340g / Wholebean'],
   ],
 ]
 ```

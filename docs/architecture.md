@@ -70,15 +70,18 @@ who genuinely need GDPR-style erasure email us and we hard-delete by hand.
   set so dev and CI stay silent. No product analytics, no user telemetry —
   server logs plus the daily ops email cover the rest for a directory this
   size. (See `system-overview.md` Flow 4 for the full observability picture.)
-- **No JS bundler ceremony for Tailwind** — using the Tailwind CDN keeps
-  the React app's `npm install` time under 30 seconds
+- **Tailwind via the standard PostCSS build** — the React app compiles
+  Tailwind with Vite/PostCSS (`tailwind.config.js` maps semantic tokens to
+  CSS variables in `src/styles/tokens.css`). An earlier draft used the CDN;
+  the build was adopted for purging, tokens, and dark-mode variants
 - **OpenStreetMap Nominatim for geocoding** — free, no API key. The address
   cascade prefers scraped JSON-LD / contact-page addresses, then falls back
   to Nominatim search. A Google Places fallback exists but is **off by
   default** (stubbed unless `GOOGLE_PLACES_API_KEY` is set), so a stock
   deploy needs no paid maps key.
-- **Resend for email** — chosen because it's the cheapest credible option
-  with good deliverability and a sane API
+- **SMTP2GO for email** — plain SMTP through Laravel's built-in mailer,
+  no SDK or API key in the app (see `deploy.md` → SMTP2GO setup). A dormant
+  Resend driver remains wired in `config/mail.php` but is unused
 
 ## Data model
 
@@ -109,7 +112,7 @@ See `system-overview.md` for the full table-by-table tour.
 
 ## Scheduled jobs
 
-Six commands run on the in-container scheduler (`app/Console/Kernel.php`):
+Seven commands run on the in-container scheduler (`app/Console/Kernel.php`):
 
 | When (UTC) | Command | Purpose |
 |---|---|---|
