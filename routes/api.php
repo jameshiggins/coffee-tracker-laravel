@@ -56,6 +56,10 @@ Route::middleware('auth:sanctum')->group(function () {
             'email' => $u->email,
             'display_name' => $u->display_name,
             'avatar_url' => $u->avatar_url,
+            // Must match the register/login payload — without it the SPA reads
+            // email_verified as undefined on every page load and shows the
+            // "verify your email" banner forever, even to verified users.
+            'email_verified' => $u->hasVerifiedEmail(),
         ]]);
     });
     Route::get('/tastings', [TastingController::class, 'index']);
