@@ -68,7 +68,14 @@ class SendRestockAlerts extends Command
             } else {
                 Mail::to($user->email)->send(new RestockDigest($hits, $unsubscribe));
                 $sent++;
+                \App\Models\AdminLog::debug('mail.restock.recipient', "Restock digest to {$user->email}", [
+                    'user_id' => $user->id, 'coffees' => count($hits),
+                ]);
             }
+        }
+
+        if (! $this->option('dry-run') && $sent > 0) {
+            \App\Models\AdminLog::info('mail.restock.sent', "Sent {$sent} restock digest(s).", ['recipients' => $sent]);
         }
 
         $this->info($this->option('dry-run')

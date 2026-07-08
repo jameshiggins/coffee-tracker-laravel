@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLog;
 use App\Models\Tasting;
 use Illuminate\Http\Request;
 
@@ -50,6 +51,9 @@ class ModerationController extends Controller
     public function hide(Tasting $tasting)
     {
         $tasting->delete();
+        AdminLog::warning('admin.moderation.hidden', "Tasting #{$tasting->id} hidden by moderation", [
+            'tasting_id' => $tasting->id, 'user_id' => $tasting->user_id, 'coffee_id' => $tasting->coffee_id,
+        ]);
         return back()->with('success', "Hid tasting #{$tasting->id}.");
     }
 
@@ -60,6 +64,9 @@ class ModerationController extends Controller
     {
         $tasting = Tasting::onlyTrashed()->findOrFail($id);
         $tasting->restore();
+        AdminLog::info('admin.moderation.restored', "Tasting #{$id} restored", [
+            'tasting_id' => $id,
+        ]);
         return back()->with('success', "Restored tasting #{$id}.");
     }
 
@@ -72,6 +79,9 @@ class ModerationController extends Controller
             'flagged_at' => null,
             'flagged_by_user_id' => null,
         ])->save();
+        AdminLog::info('admin.moderation.dismissed', "Flag dismissed on tasting #{$tasting->id}", [
+            'tasting_id' => $tasting->id,
+        ]);
         return back()->with('success', "Dismissed flag on tasting #{$tasting->id}.");
     }
 }

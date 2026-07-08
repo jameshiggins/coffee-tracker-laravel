@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLog;
 use App\Models\Coffee;
 use App\Models\Roaster;
 use Illuminate\Http\Request;
@@ -26,6 +27,9 @@ class CoffeeController extends Controller
         ]);
 
         $coffee = $roaster->coffees()->create($data);
+        AdminLog::info('admin.coffee.created', "Coffee created: {$coffee->name} ({$roaster->name})", [
+            'coffee_id' => $coffee->id, 'roaster_id' => $roaster->id,
+        ]);
 
         return redirect()->route('admin.coffees.edit', [$roaster, $coffee])
             ->with('success', 'Coffee created. Add bag sizes below.');
@@ -49,6 +53,10 @@ class CoffeeController extends Controller
         ]);
 
         $coffee->update($data);
+        AdminLog::info('admin.coffee.updated', "Coffee updated: {$coffee->name} ({$roaster->name})", [
+            'coffee_id' => $coffee->id, 'roaster_id' => $roaster->id,
+            'changed' => array_keys($coffee->getChanges()),
+        ]);
 
         return redirect()->route('admin.coffees.edit', [$roaster, $coffee])
             ->with('success', 'Coffee updated.');
@@ -64,6 +72,9 @@ class CoffeeController extends Controller
         // the coffee drops out of every public surface (Coffee::scopeAvailable)
         // while preserving the rows user content FKs to.
         $coffee->update(['removed_at' => now()]);
+        AdminLog::warning('admin.coffee.removed', "Coffee soft-removed: {$coffee->name} ({$roaster->name})", [
+            'coffee_id' => $coffee->id, 'roaster_id' => $roaster->id,
+        ]);
 
         return redirect()->back()->with('success', 'Coffee offering removed from the directory (user tastings preserved).');
     }
@@ -71,6 +82,9 @@ class CoffeeController extends Controller
     public function restore(Roaster $roaster, Coffee $coffee)
     {
         $coffee->update(['removed_at' => null]);
+        AdminLog::info('admin.coffee.restored', "Coffee restored: {$coffee->name} ({$roaster->name})", [
+            'coffee_id' => $coffee->id, 'roaster_id' => $roaster->id,
+        ]);
 
         return redirect()->back()->with('success', 'Coffee offering restored to the directory.');
     }

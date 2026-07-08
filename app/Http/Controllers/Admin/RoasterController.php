@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ImportRoasterJob;
+use App\Models\AdminLog;
 use App\Models\Roaster;
 use App\Services\NominatimGeocoder;
 use Illuminate\Http\Request;
@@ -59,7 +60,10 @@ class RoasterController extends Controller
         $data['has_subscription'] = $request->boolean('has_subscription');
         $data['is_active'] = $request->boolean('is_active', true);
 
-        Roaster::create($data);
+        $roaster = Roaster::create($data);
+        AdminLog::info('admin.roaster.created', "Roaster created: {$roaster->name}", [
+            'roaster_id' => $roaster->id, 'slug' => $roaster->slug,
+        ]);
 
         return redirect()->route('admin.roasters.index')->with('success', 'Roaster added.');
     }
@@ -95,6 +99,10 @@ class RoasterController extends Controller
         $data['is_active'] = $request->boolean('is_active');
 
         $roaster->update($data);
+        AdminLog::info('admin.roaster.updated', "Roaster updated: {$roaster->name}", [
+            'roaster_id' => $roaster->id,
+            'changed' => array_keys($roaster->getChanges()),
+        ]);
 
         return redirect()->route('admin.roasters.index')->with('success', 'Roaster updated.');
     }
@@ -107,6 +115,9 @@ class RoasterController extends Controller
         // deactivate instead: is_active=false drops the roaster (and its beans)
         // from every public surface while keeping all data recoverable.
         $roaster->update(['is_active' => false]);
+        AdminLog::warning('admin.roaster.deactivated', "Roaster deactivated (hidden from directory): {$roaster->name}", [
+            'roaster_id' => $roaster->id, 'slug' => $roaster->slug,
+        ]);
 
         return redirect()->route('admin.roasters.index')
             ->with('success', 'Roaster deactivated and hidden from the directory (data preserved). Re-activate any time by editing it.');
@@ -132,6 +143,9 @@ class RoasterController extends Controller
         ImportRoasterJob::dispatch(
             $data['url'], $data['name'] ?? null, $data['city'] ?? null, $data['region'] ?? null
         );
+        AdminLog::info('admin.import.queued', "Import queued from admin: {$data['url']}", [
+            'url' => $data['url'], 'name' => $data['name'] ?? null,
+        ]);
 
         return redirect()->route('admin.roasters.index')
             ->with('success', "Import queued for {$data['url']} — it runs in the background; refresh in a moment to see the roaster and its beans.");
@@ -146,6 +160,9 @@ class RoasterController extends Controller
         ImportRoasterJob::dispatch(
             $roaster->website, $roaster->name, $roaster->city, $roaster->region
         );
+        AdminLog::info('admin.import.refresh_queued', "Refresh queued from admin: {$roaster->name}", [
+            'roaster_id' => $roaster->id, 'website' => $roaster->website,
+        ]);
 
         return back()->with('success', "Refresh queued for {$roaster->name} — runs in the background.");
     }
@@ -160,6 +177,10 @@ class RoasterController extends Controller
             $roaster->street_address, $roaster->city, $roaster->region, 'Canada'
         );
         if (! $hit) {
+            AdminLog::warning('admin.roaster.geocode_failed', "Geocode found no match for {$roaster->name}", [
+                'roaster_id' => $roaster->id, 'street_address' => $roaster->street_address,
+            ]);
+
             return back()->with('success', "Geocode failed for {$roaster->name}: no match.");
         }
 
@@ -171,6 +192,10 @@ class RoasterController extends Controller
             'longitude' => $hit['lng'],
             'address_source' => 'manual',
             'address_verified_at' => now(),
+        ]);
+
+        AdminLog::info('admin.roaster.geocoded', "Geocoded {$roaster->name} → {$hit['display_name']}", [
+            'roaster_id' => $roaster->id, 'lat' => $hit['lat'], 'lng' => $hit['lng'],
         ]);
 
         return back()->with('success', "Geocoded {$roaster->name} → {$hit['display_name']}");

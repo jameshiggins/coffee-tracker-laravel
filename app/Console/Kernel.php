@@ -80,6 +80,15 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
 
+        // Admin-log retention: the admin_logs table shares the single SQLite
+        // volume, and a verbose night of imports can add thousands of rows.
+        // 12:10 UTC sits clear of the import (11:00), daily-ops (11:30) and
+        // the monthly address sweep (12:00).
+        $schedule->command('logs:prune')
+            ->dailyAt('12:10')
+            ->withoutOverlapping()
+            ->onOneServer();
+
         // Ops liveness: bump the scheduler heartbeat that GET /up reads. If
         // schedule:work dies, this stops and /up flips to 503 within ~15 min,
         // so whatever uptime monitor watches /up catches a dead scheduler —

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLog;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -46,6 +47,9 @@ class LoginController extends Controller
 
         if (RateLimiter::tooManyAttempts($key, self::MAX_FAILURES)) {
             $seconds = RateLimiter::availableIn($key);
+            AdminLog::warning('admin.auth.lockout', 'Admin login refused during cooldown', [
+                'ip' => $request->ip(), 'retry_in_seconds' => $seconds,
+            ]);
 
             return back()->withErrors([
                 'auth' => "Too many failed attempts. Try again in {$seconds} seconds.",
@@ -57,6 +61,9 @@ class LoginController extends Controller
 
         if (! ($userOk && $passOk)) {
             RateLimiter::hit($key, self::DECAY_SECONDS);
+            AdminLog::warning('admin.auth.login_failed', 'Failed admin login attempt', [
+                'ip' => $request->ip(), 'username_tried' => (string) $request->input('username'),
+            ]);
 
             return back()->withErrors([
                 'auth' => 'Those credentials don’t match.',
@@ -68,6 +75,7 @@ class LoginController extends Controller
         // Session fixation defense: new session id on privilege change.
         $request->session()->regenerate();
         $request->session()->put('admin_authenticated', true);
+        AdminLog::info('admin.auth.login', 'Operator signed in', ['ip' => $request->ip()]);
 
         return redirect()->intended(route('admin.roasters.index'));
     }
@@ -77,6 +85,7 @@ class LoginController extends Controller
         $request->session()->forget('admin_authenticated');
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        AdminLog::info('admin.auth.logout', 'Operator signed out', ['ip' => $request->ip()]);
 
         return redirect()->route('admin.login');
     }
