@@ -291,7 +291,25 @@ class SharedTest extends TestCase
             'breville milk pitcher'       => ['Breville - the Temp Control Milk Pitcher', 'Coffee', []],
             'honey product'               => ['Drizzle Honey', 'Coffee', []],
             'internal test sku'           => ['DO NOT BUY [TEST]', 'Coffee', []],
+            // Prototype's storage-vessel refill: $19 "100g tin refill for top
+            // tier coffees … No jar purchase necessary" — a container refill,
+            // not a bean. Empty product_type (Squarespace), no gear token in the
+            // title, so it read as coffee until the vacuum-pack/refill reject.
+            'vacuum pack / jar refill'    => ['100g Vacuum Pack/Jar Refill', '', []],
+            'tin refill'                  => ['Coffee Tin Refill', 'Coffee', []],
+            'refill for canister'         => ['Refill for Canister', '', []],
         ];
+    }
+
+    /**
+     * The vacuum-pack/refill reject must be surgical: a bare "jar" in a real
+     * coffee's name stays coffee. Rosso's "Jam Jar / Ethiopia" is the live case
+     * that a blanket "jar" reject would wrongly purge.
+     */
+    public function test_looks_like_coffee_keeps_coffee_named_jam_jar(): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee('Jam Jar / Ethiopia', 'Coffee', []));
+        $this->assertTrue(Shared::looksLikeCoffee('Jam Jar', '', ['coffee']));
     }
 
     /**

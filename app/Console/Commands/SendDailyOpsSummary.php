@@ -52,10 +52,14 @@ class SendDailyOpsSummary extends Command
             return self::SUCCESS;
         }
 
-        $recipient = $this->option('email') ?: config('mail.from.address');
+        // Recipient precedence: explicit --email, then the ops address
+        // (OPS_EMAIL — the human who reads these), then the from-address as the
+        // historical fallback. Sends here go to whoever operates the directory,
+        // NOT the sender identity, so a personal inbox actually receives them.
+        $recipient = $this->option('email') ?: config('mail.ops_address') ?: config('mail.from.address');
 
         if (empty($recipient)) {
-            $this->error('No recipient: pass --email or set mail.from.address.');
+            $this->error('No recipient: pass --email or set OPS_EMAIL / mail.from.address.');
 
             return self::FAILURE;
         }
