@@ -53,6 +53,48 @@ class RoasterImportTest extends TestCase
         $this->assertSame(2, $coffee->variants()->count());
     }
 
+    public function test_dns_failure_stamps_import_failing_since_and_preserves_it_across_failures(): void
+    {
+        // Throwing fake = a real connection failure ("could not resolve host").
+        Http::fake(['*' => fn () => throw new \Illuminate\Http\Client\ConnectionException('cURL error 6: Could not resolve host: deadco.test')]);
+
+        $import = fn () => rescue(fn () => (new RoasterImporter())->import('https://deadco.test', name: 'Dead Co'), null, false);
+
+        $import();
+        $roaster = Roaster::where('slug', 'dead-co')->firstOrFail();
+        $this->assertSame('error', $roaster->last_import_status);
+        $this->assertNotNull($roaster->import_failing_since, 'failure streak stamped');
+        $this->assertSame('dead_domain', $roaster->importErrorKind());
+        $firstStamp = $roaster->import_failing_since;
+
+        // A second failure (same fake still throws) must NOT move the streak
+        // start — the 7-day window measures from the first failure.
+        $this->travel(1)->days();
+        $import();
+        $this->assertEquals(
+            $firstStamp->toDateTimeString(),
+            $roaster->fresh()->import_failing_since->toDateTimeString(),
+            'streak start preserved across failures'
+        );
+        $this->travelBack();
+    }
+
+    public function test_a_successful_import_clears_the_failing_streak(): void
+    {
+        // A roaster mid-failure-streak; matched by website on re-import.
+        $roaster = Roaster::factory()->create([
+            'name' => 'Dead Co', 'website' => 'https://deadco.test',
+            'last_import_status' => 'error', 'import_failing_since' => now()->subDays(3),
+        ]);
+
+        Http::fake(['*' => Http::response($this->fakeShopifyResponse(), 200)]);
+        (new RoasterImporter())->import('https://deadco.test', name: 'Dead Co');
+
+        $roaster->refresh();
+        $this->assertNull($roaster->import_failing_since, 'a response ends the streak');
+        $this->assertSame('success', $roaster->last_import_status);
+    }
+
     public function test_import_persists_is_blend_flag_per_coffee(): void
     {
         Http::fake(['*' => Http::response($this->fakeShopifyResponse(), 200)]);

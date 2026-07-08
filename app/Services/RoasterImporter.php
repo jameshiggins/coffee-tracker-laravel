@@ -112,6 +112,10 @@ class RoasterImporter
                     'last_imported_at' => Carbon::now(),
                     'last_import_status' => 'error',
                     'last_import_error' => $e->getMessage(),
+                    // Stamp the start of the failure streak once; leave it be
+                    // on subsequent failures so the 7-day dead-domain window
+                    // measures from the FIRST failure.
+                    'import_failing_since' => $roaster->import_failing_since ?? Carbon::now(),
                 ])->save();
                 AdminLog::error('import.roaster.failed', "Import failed: {$roaster->name} — {$e->getMessage()}", [
                     'roaster_id' => $roaster->id, 'website' => $website,
@@ -186,10 +190,13 @@ class RoasterImporter
         $this->syncCoffees($roaster, $coffees);
         $this->pruneStaleOutOfStock($roaster);
 
+        // A response (even an empty catalog) means the domain is alive — end
+        // any failure streak so the dead-domain timer resets.
         $roaster->forceFill([
             'last_imported_at' => Carbon::now(),
             'last_import_status' => empty($coffees) ? 'empty' : 'success',
             'last_import_error' => null,
+            'import_failing_since' => null,
         ])->save();
 
         if (empty($coffees)) {
