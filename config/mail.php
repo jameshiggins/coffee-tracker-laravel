@@ -129,6 +129,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Ops Recipient
+    |--------------------------------------------------------------------------
+    |
+    | Where operational digests (the daily ops summary, and the fallback for
+    | cron-failure output) are delivered. The sender identity (MAIL_FROM_ADDRESS)
+    | must stay on the SMTP2GO-verified domain, but the human who reads these
+    | reports is usually a personal inbox — set OPS_EMAIL to that address.
+    | Falls back to the from-address (the historical behaviour) when unset.
+    |
+    */
+
+    'ops_address' => env('OPS_EMAIL', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+
+    /*
+    |--------------------------------------------------------------------------
     | Markdown Mail Settings
     |--------------------------------------------------------------------------
     |

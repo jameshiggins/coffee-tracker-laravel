@@ -222,6 +222,23 @@ class DailyOpsSummaryTest extends TestCase
         Mail::assertQueued(DailyOpsSummary::class, fn ($mail) => $mail->hasTo('ops@roastmap.ca'));
     }
 
+    public function test_defaults_recipient_to_the_ops_address(): void
+    {
+        // Regression: the scheduled run passes no --email, so the summary must
+        // go to the ops recipient (OPS_EMAIL) rather than the sender identity —
+        // otherwise it lands on the from-mailbox and the operator never sees it.
+        Mail::fake();
+        config([
+            'mail.ops_address' => 'me@personal.example',
+            'mail.from.address' => 'sender@verified.example',
+        ]);
+        $this->messyReport();
+
+        $this->artisan('reports:daily-ops')->assertExitCode(0);
+
+        Mail::assertQueued(DailyOpsSummary::class, fn ($mail) => $mail->hasTo('me@personal.example'));
+    }
+
     public function test_only_when_notable_skips_a_clean_day(): void
     {
         Mail::fake();

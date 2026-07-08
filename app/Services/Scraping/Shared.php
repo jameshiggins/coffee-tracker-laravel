@@ -395,6 +395,17 @@ final class Shared
         // Pot of cleaner / pot of grinds — not a coffee bag.
         if (preg_match('/\bcoffee\s+pots?\b/', $titleLower)) return false;
 
+        // Storage-vessel refills & vacuum packs — the empty container OR its
+        // refill, not the coffee. Prototype's "100g Vacuum Pack/Jar Refill"
+        // ($19, "100g tin refill for top tier coffees … No jar purchase
+        // necessary") is the canonical case: it names no gear token the lists
+        // above catch, so it read as a bean. We match "vacuum pack" and the
+        // rigid-container refills (jar/tin/can/canister/vault refill, either
+        // word order) — deliberately NOT a bare "jar", so Rosso's real coffee
+        // "Jam Jar / Ethiopia" is untouched, and NOT "bag/pouch refill", which
+        // could be an eco refill pouch of actual coffee.
+        if (preg_match('/\b(vacuum[\s-]?packs?|(?:jars?|tins?|cans?|canisters?|vaults?)\s+refills?|refills?\s+(?:for\s+)?(?:jars?|tins?|cans?|canisters?|vaults?))\b/', $titleLower)) return false;
+
         // Hot cocoa / drinking chocolate — beverage powders that aren't
         // coffee. Bare "cocoa" stays allowed because it's a common flavor
         // descriptor in real blend names ("Cocoa Mocha Nut", etc.).

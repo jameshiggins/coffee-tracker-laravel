@@ -21,7 +21,7 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onOneServer()
             ->runInBackground()
-            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
         $this->pingIfConfigured($import, 'import');
 
         // Q14: email users about wishlisted beans that came back in stock,
@@ -30,7 +30,7 @@ class Kernel extends ConsoleKernel
             ->dailyAt('14:00')
             ->withoutOverlapping()
             ->onOneServer()
-            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
 
         // Q-AR: monthly address-resolution sweep. Addresses rarely change, so
         // a once-a-month cascade is plenty — running daily would spam roaster
@@ -42,7 +42,7 @@ class Kernel extends ConsoleKernel
             ->monthlyOn(1, '12:00')
             ->withoutOverlapping()
             ->onOneServer()
-            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
 
         // Trust#2: weekly ops digest rolling up import health, sanity-gate
         // drops, likely duplicates, and address gaps into one email. Monday
@@ -52,7 +52,7 @@ class Kernel extends ConsoleKernel
             ->weeklyOn(1, '13:00')
             ->withoutOverlapping()
             ->onOneServer()
-            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
         $this->pingIfConfigured($digest, 'digest');
 
         // Ops notifications: daily ops summary covering roasters added, import
@@ -65,7 +65,7 @@ class Kernel extends ConsoleKernel
             ->dailyAt('11:30')
             ->withoutOverlapping()
             ->onOneServer()
-            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
 
         // Data quality: sweep the active catalog for rows the coffee/gear
         // filter now rejects and soft-remove them. A re-import already
@@ -78,7 +78,7 @@ class Kernel extends ConsoleKernel
             ->weeklyOn(1, '13:30')
             ->withoutOverlapping()
             ->onOneServer()
-            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
 
         // Auto-hide roasters whose domain has been unresolvable for 7+ days.
         // 11:50 UTC = 50 min after the daily import, so today's fresh
