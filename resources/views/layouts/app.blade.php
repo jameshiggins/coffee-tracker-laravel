@@ -214,6 +214,15 @@
                      React migration — referencing it 500'd every admin page. --}}
                 <a href="{{ url('/') }}" target="_blank" rel="noopener">↗ View live site</a>
                 <a href="{{ route('admin.roasters.index') }}" class="{{ request()->routeIs('admin.*') ? 'active' : '' }}">Admin</a>
+                @if (session('admin_authenticated'))
+                    <form method="POST" action="{{ route('admin.logout') }}" style="display:inline">
+                        @csrf
+                        <button type="submit"
+                                style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.8);font-size:14px;padding:6px 16px;border-radius:6px;">
+                            Sign out
+                        </button>
+                    </form>
+                @endif
             </div>
         </div>
 

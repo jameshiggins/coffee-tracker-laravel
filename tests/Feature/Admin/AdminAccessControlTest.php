@@ -6,57 +6,46 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * The Blade operator console (/admin/*) is gated by BasicAdminAuth, which is
- * the ONLY data-mutation surface in the app and previously had zero tests.
- * These lock in the fail-closed contract: no credentials configured = nobody
- * in; wrong credentials = 401; correct credentials = through.
+ * The Blade operator console (/admin/*) is gated by AdminSessionAuth — the
+ * ONLY data-mutation surface in the app. These lock in the contract:
+ * no credentials configured = nobody in (fail closed); no session = bounced
+ * to the login page; authenticated session = through.
  */
 class AdminAccessControlTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function basic(string $user, string $pass): array
-    {
-        return ['Authorization' => 'Basic ' . base64_encode("{$user}:{$pass}")];
-    }
-
     public function test_admin_is_locked_out_when_credentials_are_not_configured(): void
     {
-        // Default test env has no ADMIN_USER / ADMIN_PASS — must fail closed.
+        // Default test env has no ADMIN_USER / ADMIN_PASS — must fail closed,
+        // including the login page itself.
         config(['admin.user' => null, 'admin.pass' => null]);
 
         $this->get('/admin/roasters')->assertStatus(503);
         $this->get('/admin/moderation')->assertStatus(503);
+        $this->get('/admin/login')->assertStatus(503);
     }
 
-    public function test_admin_rejects_missing_credentials_with_401(): void
+    public function test_guests_are_redirected_to_the_login_page(): void
     {
         config(['admin.user' => 'operator', 'admin.pass' => 'sekret']);
 
-        $this->get('/admin/roasters')
-            ->assertStatus(401)
-            ->assertHeader('WWW-Authenticate', 'Basic realm="Roastmap Admin", charset="UTF-8"');
+        $this->get('/admin/roasters')->assertRedirect(route('admin.login'));
+        $this->get('/admin/moderation')->assertRedirect(route('admin.login'));
     }
 
-    public function test_admin_rejects_wrong_credentials_with_401(): void
+    public function test_a_forged_session_value_is_not_enough(): void
     {
         config(['admin.user' => 'operator', 'admin.pass' => 'sekret']);
 
-        $this->withHeaders($this->basic('operator', 'wrong'))
+        // Only the literal boolean set by the login controller passes.
+        $this->withSession(['admin_authenticated' => 'yes'])
             ->get('/admin/roasters')
-            ->assertStatus(401);
-
-        $this->withHeaders($this->basic('nope', 'sekret'))
-            ->get('/admin/roasters')
-            ->assertStatus(401);
+            ->assertRedirect(route('admin.login'));
     }
 
-    public function test_admin_allows_correct_credentials(): void
+    public function test_an_authenticated_session_gets_through(): void
     {
-        config(['admin.user' => 'operator', 'admin.pass' => 'sekret']);
-
-        $this->withHeaders($this->basic('operator', 'sekret'))
-            ->get('/admin/roasters')
-            ->assertOk();
+        $this->actingAsAdmin()->get('/admin/roasters')->assertOk();
     }
 }

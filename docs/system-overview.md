@@ -64,8 +64,8 @@ session/cookie, no CSRF surface. Public reads (the directory, a coffee page) nee
 no token.
 
 The admin pages (`/admin/*`, server-rendered Blade) are a separate world, gated
-by HTTP Basic auth (`admin.basic` middleware) — independent of the React app's
-token auth.
+by a session login page at `/admin/login` (`admin.auth` middleware; env-pair
+credential, failure-throttled) — independent of the React app's token auth.
 
 ## Flow 2 — the nightly import (the heart of the system)
 
