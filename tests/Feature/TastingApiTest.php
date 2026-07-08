@@ -243,4 +243,17 @@ class TastingApiTest extends TestCase
             ->assertJsonPath('user.display_name', 'alice_taster')
             ->assertJsonPath('user.avatar_url', 'https://example.com/a.jpg');
     }
+
+    public function test_me_reports_email_verified_status(): void
+    {
+        // The SPA's verify-email banner keys on this; if /me omits it the
+        // banner reads undefined→falsy and nags verified users forever.
+        $unverified = $this->makeUser(['email' => 'unverified@example.com']);
+        Sanctum::actingAs($unverified);
+        $this->getJson('/api/me')->assertJsonPath('user.email_verified', false);
+
+        $verified = $this->makeUser(['email' => 'verified@example.com', 'email_verified_at' => now()]);
+        Sanctum::actingAs($verified);
+        $this->getJson('/api/me')->assertJsonPath('user.email_verified', true);
+    }
 }
