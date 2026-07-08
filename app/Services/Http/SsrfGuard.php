@@ -32,18 +32,18 @@ final class SsrfGuard
     {
         $parts = parse_url($url);
         if ($parts === false) {
-            throw new BlockedUrlException("Blocked unparseable URL: {$url}");
+            self::block("Blocked unparseable URL: {$url}");
         }
 
         $scheme = strtolower($parts['scheme'] ?? '');
         if (! in_array($scheme, self::ALLOWED_SCHEMES, true)) {
-            throw new BlockedUrlException("Blocked non-HTTP(S) URL scheme '{$scheme}': {$url}");
+            self::block("Blocked non-HTTP(S) URL scheme '{$scheme}': {$url}");
         }
 
         $host = $parts['host'] ?? '';
         $host = trim($host, '[]'); // strip IPv6 literal brackets
         if ($host === '') {
-            throw new BlockedUrlException("Blocked URL with no host: {$url}");
+            self::block("Blocked URL with no host: {$url}");
         }
 
         self::assertHostAllowed($host);
@@ -57,7 +57,7 @@ final class SsrfGuard
         // always rejected, including under the test suite.
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             if (self::isBlockedIp($host)) {
-                throw new BlockedUrlException("Blocked request to non-public address {$host}.");
+                self::block("Blocked request to non-public address {$host}.");
             }
 
             return;
@@ -76,9 +76,21 @@ final class SsrfGuard
         // let the transport surface the failure rather than masking it.
         foreach ($ips as $ip) {
             if (self::isBlockedIp($ip)) {
-                throw new BlockedUrlException("Blocked request to non-public address {$ip} (host {$host}).");
+                self::block("Blocked request to non-public address {$ip} (host {$host}).");
             }
         }
+    }
+
+    /**
+     * Record the security event, then refuse. Every SSRF block is
+     * operator-visible in /admin/logs — a compromised roaster site planting
+     * internal URLs should not fail silently.
+     */
+    private static function block(string $message): never
+    {
+        \App\Models\AdminLog::warning('security.ssrf.blocked', $message);
+
+        throw new BlockedUrlException($message);
     }
 
     /**

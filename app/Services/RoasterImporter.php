@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AdminLog;
 use App\Models\Roaster;
 use App\Models\ScraperRejectionLog;
 use App\Services\CoffeeFieldExtractor;
@@ -112,6 +113,9 @@ class RoasterImporter
                     'last_import_status' => 'error',
                     'last_import_error' => $e->getMessage(),
                 ])->save();
+                AdminLog::error('import.roaster.failed', "Import failed: {$roaster->name} — {$e->getMessage()}", [
+                    'roaster_id' => $roaster->id, 'website' => $website,
+                ]);
                 throw $e;
             }
             [$scraper, $coffees] = $recovered;
@@ -187,6 +191,17 @@ class RoasterImporter
             'last_import_status' => empty($coffees) ? 'empty' : 'success',
             'last_import_error' => null,
         ])->save();
+
+        if (empty($coffees)) {
+            AdminLog::warning('import.roaster.empty', "Import returned no coffees: {$roaster->name}", [
+                'roaster_id' => $roaster->id, 'platform' => $roaster->platform,
+            ]);
+        } else {
+            AdminLog::info('import.roaster.finished', "Imported {$roaster->name}: " . count($coffees) . ' coffees', [
+                'roaster_id' => $roaster->id, 'platform' => $roaster->platform,
+                'coffees' => count($coffees),
+            ]);
+        }
 
         return $roaster->fresh('coffees.variants');
     }

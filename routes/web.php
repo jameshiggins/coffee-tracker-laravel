@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\CoffeeController as AdminCoffeeController;
 use App\Http\Controllers\Admin\VariantController as AdminVariantController;
 use App\Http\Controllers\Admin\ModerationController as AdminModerationController;
 use App\Http\Controllers\Admin\LoginController as AdminLoginController;
+use App\Http\Controllers\Admin\LogController as AdminLogController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 use App\Http\Controllers\HealthController;
 use Illuminate\Support\Facades\Route;
@@ -38,6 +39,10 @@ Route::post('/admin/logout', [AdminLoginController::class, 'logout'])->name('adm
 // The whole group is behind a single env credential; the React app's
 // Sanctum auth is separate.
 Route::prefix('admin')->name('admin.')->middleware('admin.auth')->group(function () {
+    // Operational logs + the runtime verbose-logging toggle.
+    Route::get('logs', [AdminLogController::class, 'index'])->name('logs.index');
+    Route::post('settings/verbose-logging', [AdminLogController::class, 'toggleVerbose'])->name('settings.verbose');
+
     Route::resource('roasters', AdminRoasterController::class)->except(['show']);
 
     Route::get('roasters/{roaster}/coffees/create', [AdminCoffeeController::class, 'create'])

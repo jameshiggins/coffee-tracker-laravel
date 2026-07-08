@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLog;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Log;
@@ -22,6 +23,7 @@ class GoogleAuthController extends Controller
             $googleUser = Socialite::driver('google')->user();
         } catch (\Throwable $e) {
             Log::warning('Google OAuth callback failed', ['error' => $e->getMessage()]);
+            AdminLog::warning('auth.google.callback_failed', 'Google OAuth callback failed: ' . $e->getMessage());
             return redirect($this->frontendUrl('?auth_error=1'));
         }
 
@@ -33,10 +35,14 @@ class GoogleAuthController extends Controller
             // through the unique-handle generator and degrade gracefully if
             // anything still fails, instead of 500-ing the OAuth callback.
             Log::warning('Google OAuth user provisioning failed', ['error' => $e->getMessage()]);
+            AdminLog::warning('auth.google.provisioning_failed', 'Google OAuth provisioning failed: ' . $e->getMessage());
             return redirect($this->frontendUrl('?auth_error=1'));
         }
 
         $token = $user->createToken('web')->plainTextToken;
+        AdminLog::info('auth.google.signed_in', "Google sign-in: {$user->email}", [
+            'user_id' => $user->id, 'new_account' => $user->wasRecentlyCreated,
+        ]);
 
         // NOTE: the token rides the query string because the out-of-repo React
         // SPA reads it from there; changing the channel is a cross-repo

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -51,7 +52,13 @@ class AuthController extends Controller
         } catch (\Throwable $e) {
             report($e);
             $verificationEmailSent = false;
+            AdminLog::warning('mail.verification.failed', "Verification email failed for {$user->email}: " . $e->getMessage(), [
+                'user_id' => $user->id,
+            ]);
         }
+        AdminLog::info('auth.registered', "New account: {$user->email}", [
+            'user_id' => $user->id, 'verification_email_sent' => $verificationEmailSent,
+        ]);
 
         $token = $user->createToken('web')->plainTextToken;
 
