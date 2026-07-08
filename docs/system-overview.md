@@ -18,8 +18,8 @@ The React app is what visitors see. It holds no data of its own — it asks the
 Laravel API for everything over HTTP (JSON). The Laravel app owns the database,
 the nightly scraping, all email, and the operator's admin pages.
 
-DNS is Cloudflare; transactional email is Resend. Deploy details live in
-`deploy.md`.
+DNS is Namecheap (Advanced DNS host records); transactional email is
+SMTP2GO over plain SMTP. Deploy details live in `deploy.md`.
 
 ## The data model
 

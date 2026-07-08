@@ -14,7 +14,7 @@ class Kernel extends ConsoleKernel
     {
         // Q6: daily inventory + price refresh from every roaster's source.
         // 04:00 PST (= 11:00 UTC) — quiet hour for both NA and EU storefront
-        // CDNs. ~2-minute total runtime for ~35 roasters; failures are
+        // CDNs. Roughly ~10 minutes across the full directory; failures are
         // recorded per-roaster in last_import_status / last_import_error.
         $import = $schedule->command('roasters:import-all')
             ->dailyAt('11:00')
