@@ -80,6 +80,14 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.from.address')));
 
+        // Auto-hide roasters whose domain has been unresolvable for 7+ days.
+        // 11:50 UTC = 50 min after the daily import, so today's fresh
+        // failure/success state is what it acts on.
+        $schedule->command('roasters:auto-deactivate-dead')
+            ->dailyAt('11:50')
+            ->withoutOverlapping()
+            ->onOneServer();
+
         // Admin-log retention: the admin_logs table shares the single SQLite
         // volume, and a verbose night of imports can add thousands of rows.
         // 12:10 UTC sits clear of the import (11:00), daily-ops (11:30) and

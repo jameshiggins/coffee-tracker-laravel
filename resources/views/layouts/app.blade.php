@@ -213,7 +213,8 @@
                      The old route('roasters.index') Blade page was removed in the
                      React migration — referencing it 500'd every admin page. --}}
                 <a href="{{ url('/') }}" target="_blank" rel="noopener">↗ View live site</a>
-                <a href="{{ route('admin.roasters.index') }}" class="{{ request()->routeIs('admin.*') && ! request()->routeIs('admin.logs.*') ? 'active' : '' }}">Admin</a>
+                <a href="{{ route('admin.roasters.index') }}" class="{{ request()->routeIs('admin.roasters.*') || request()->routeIs('admin.coffees.*') || request()->routeIs('admin.moderation.*') ? 'active' : '' }}">Admin</a>
+                <a href="{{ route('admin.attention.index') }}" class="{{ request()->routeIs('admin.attention.*') ? 'active' : '' }}">Needs Attention</a>
                 <a href="{{ route('admin.logs.index') }}" class="{{ request()->routeIs('admin.logs.*') ? 'active' : '' }}">Logs</a>
                 @if (session('admin_authenticated'))
                     <form method="POST" action="{{ route('admin.logout') }}" style="display:inline">

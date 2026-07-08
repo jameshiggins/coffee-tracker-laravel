@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\VariantController as AdminVariantController;
 use App\Http\Controllers\Admin\ModerationController as AdminModerationController;
 use App\Http\Controllers\Admin\LoginController as AdminLoginController;
 use App\Http\Controllers\Admin\LogController as AdminLogController;
+use App\Http\Controllers\Admin\AttentionController as AdminAttentionController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 use App\Http\Controllers\HealthController;
 use Illuminate\Support\Facades\Route;
@@ -42,6 +43,11 @@ Route::prefix('admin')->name('admin.')->middleware('admin.auth')->group(function
     // Operational logs + the runtime verbose-logging toggle.
     Route::get('logs', [AdminLogController::class, 'index'])->name('logs.index');
     Route::post('settings/verbose-logging', [AdminLogController::class, 'toggleVerbose'])->name('settings.verbose');
+
+    // Needs Attention: roasters grouped by import failure, with quick actions.
+    Route::get('attention', [AdminAttentionController::class, 'index'])->name('attention.index');
+    Route::post('attention/deactivate-dead', [AdminAttentionController::class, 'deactivateDead'])->name('attention.deactivate_dead');
+    Route::post('attention/{roaster}/retry', [AdminAttentionController::class, 'retry'])->name('attention.retry');
 
     Route::resource('roasters', AdminRoasterController::class)->except(['show']);
 
