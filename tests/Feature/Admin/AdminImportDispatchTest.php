@@ -16,17 +16,9 @@ class AdminImportDispatchTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected function setUp(): void
-    {
-        parent::setUp();
-        config(['admin.user' => 'operator', 'admin.pass' => 'sekret']);
-    }
-
     private function asAdmin()
     {
-        return $this->withHeaders([
-            'Authorization' => 'Basic ' . base64_encode('operator:sekret'),
-        ]);
+        return $this->actingAsAdmin();
     }
 
     public function test_import_form_queues_an_import_job(): void

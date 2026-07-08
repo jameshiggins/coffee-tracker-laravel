@@ -22,17 +22,9 @@ class AdminDestroyPreservesDataTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected function setUp(): void
-    {
-        parent::setUp();
-        config(['admin.user' => 'operator', 'admin.pass' => 'sekret']);
-    }
-
     private function asAdmin()
     {
-        return $this->withHeaders([
-            'Authorization' => 'Basic ' . base64_encode('operator:sekret'),
-        ]);
+        return $this->actingAsAdmin();
     }
 
     public function test_deleting_a_coffee_soft_removes_it_and_preserves_user_data(): void
@@ -90,12 +82,13 @@ class AdminDestroyPreservesDataTest extends TestCase
 
     public function test_admin_destroy_requires_authentication(): void
     {
+        config(['admin.user' => 'operator', 'admin.pass' => 'sekret']);
         $roaster = Roaster::factory()->create();
         $coffee = Coffee::factory()->for($roaster)->create();
 
-        // No Basic auth header → blocked, and nothing mutated.
+        // No admin session → bounced to the login page, and nothing mutated.
         $this->delete("/admin/roasters/{$roaster->slug}/coffees/{$coffee->id}")
-            ->assertStatus(401);
+            ->assertRedirect(route('admin.login'));
 
         $this->assertNull($coffee->fresh()->removed_at);
     }

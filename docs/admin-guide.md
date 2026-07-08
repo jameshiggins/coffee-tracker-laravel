@@ -1,11 +1,13 @@
 # Admin Guide
 
-You're the operator. The admin UI lives at `/admin` and is gated by **HTTP
-Basic auth** (`BasicAdminAuth` middleware, aliased `admin.basic`). Set the
-credentials with the `ADMIN_USER` / `ADMIN_PASS` env vars — Fly secrets in
-prod. The gate **fails closed**: if either is unset the whole `/admin/*` group
-returns 503, so there's no window where it's world-writable. (Visitor auth for
-the React app is separate — Sanctum bearer tokens.)
+You're the operator. The admin UI lives at `/admin` behind a **login page**
+(`/admin/login` — session auth via the `AdminSessionAuth` middleware, aliased
+`admin.auth`; `Admin\LoginController` verifies with hash_equals and throttles
+failures to 10 per 5 minutes per IP). Credentials are still the single
+`ADMIN_USER` / `ADMIN_PASS` env pair — Fly secrets in prod. The gate **fails
+closed**: if either is unset the whole `/admin/*` group (login page included)
+returns 503, so there's no window where it's world-writable. Sign out from the
+header. (Visitor auth for the React app is separate — Sanctum bearer tokens.)
 
 ## Daily flow
 

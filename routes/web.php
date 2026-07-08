@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\RoasterController as AdminRoasterController;
 use App\Http\Controllers\Admin\CoffeeController as AdminCoffeeController;
 use App\Http\Controllers\Admin\VariantController as AdminVariantController;
 use App\Http\Controllers\Admin\ModerationController as AdminModerationController;
+use App\Http\Controllers\Admin\LoginController as AdminLoginController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 use App\Http\Controllers\HealthController;
 use Illuminate\Support\Facades\Route;
@@ -26,9 +27,17 @@ Route::get('/roasters/{slug}', fn (string $slug) => redirect()->away(env('FRONTE
 // Convenience redirect: /admin → /admin/roasters (the actual admin home).
 Route::get('/admin', fn () => redirect()->route('admin.roasters.index'));
 
-// Admin routes — HTTP Basic gated (BasicAdminAuth). The whole group is
-// behind a single credential; the React app's Sanctum auth is separate.
-Route::prefix('admin')->name('admin.')->middleware('admin.basic')->group(function () {
+// Admin login/logout — OUTSIDE the gate (you have to be able to reach the
+// form). Credential verification + failure throttling live in the
+// controller; session flag is what AdminSessionAuth checks.
+Route::get('/admin/login', [AdminLoginController::class, 'show'])->name('admin.login');
+Route::post('/admin/login', [AdminLoginController::class, 'login'])->name('admin.login.attempt');
+Route::post('/admin/logout', [AdminLoginController::class, 'logout'])->name('admin.logout');
+
+// Admin routes — session-gated (AdminSessionAuth; see /admin/login above).
+// The whole group is behind a single env credential; the React app's
+// Sanctum auth is separate.
+Route::prefix('admin')->name('admin.')->middleware('admin.auth')->group(function () {
     Route::resource('roasters', AdminRoasterController::class)->except(['show']);
 
     Route::get('roasters/{roaster}/coffees/create', [AdminCoffeeController::class, 'create'])

@@ -27,7 +27,7 @@ coffee-tracker-laravel/
     Exceptions/Handler.php   # reports uncaught exceptions to Sentry (no-op without DSN)
     Http/Controllers/
       Api/                   # JSON endpoints (auth + tastings + wishlist + …)
-      Admin/                 # admin UI (Blade), behind HTTP Basic
+      Admin/                 # admin UI (Blade), behind the /admin/login session gate
       HealthController.php    # GET /up health probe
     Listeners/               # RecordMailSent (bumps the mail.sent heartbeat)
     Mail/                    # RestockDigest, DailyOpsSummary, WeeklyDataQualityDigest
