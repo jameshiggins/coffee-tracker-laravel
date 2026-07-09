@@ -38,6 +38,9 @@ class DailyOpsReport
      */
     public const MAIL_STALE_AFTER_HOURS = 26;
 
+    /** Cap the itemized dropped-bean list so a runaway feed can't bloat the email. */
+    public const MAX_REJECTION_ITEMS = 50;
+
     public function build(int $windowHours = 24): array
     {
         $now = Carbon::now();
@@ -112,6 +115,9 @@ class DailyOpsReport
                 'total' => $rejectionTotal,
                 'by_reason' => $rejectionByReason,
                 'top_roasters' => $rejectionTopRoasters,
+                // The actual dropped beans (name + reason + offending numbers),
+                // so the email says WHICH beans went and why — not just a count.
+                'items' => ScraperRejectionLog::itemizedSnapshot(self::MAX_REJECTION_ITEMS),
             ],
             'mail' => [
                 'last_sent' => $lastSent?->toIso8601String(),

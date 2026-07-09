@@ -88,6 +88,19 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onOneServer();
 
+        // Weekend second chance: re-attempt the import for every DEACTIVATED
+        // roaster and bring back the ones whose storefront has returned. The
+        // daily import only touches active roasters, so without this a roaster
+        // hidden for a dead domain would never be retried even after the site
+        // comes back. Saturday 10:00 UTC — clear of the daily import (11:00) and
+        // its follow-ups, and a quiet slot for the extra outbound fetches.
+        $schedule->command('roasters:retry-inactive')
+            ->weeklyOn(6, '10:00')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground()
+            ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
+
         // Admin-log retention: the admin_logs table shares the single SQLite
         // volume, and a verbose night of imports can add thousands of rows.
         // 12:10 UTC sits clear of the import (11:00), daily-ops (11:30) and

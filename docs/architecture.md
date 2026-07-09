@@ -112,14 +112,15 @@ See `system-overview.md` for the full table-by-table tour.
 
 ## Scheduled jobs
 
-Seven commands run on the in-container scheduler (`app/Console/Kernel.php`):
+Eight commands run on the in-container scheduler (`app/Console/Kernel.php`):
 
 | When (UTC) | Command | Purpose |
 |---|---|---|
 | daily 11:00 | `roasters:import-all` | nightly catalogue refresh |
-| daily 11:30 | `reports:daily-ops` | daily ops summary email |
+| daily 11:30 | `reports:daily-ops` | daily ops summary email (incl. itemized dropped beans) |
 | daily 14:00 | `alerts:restock` | wishlist back-in-stock emails |
-| Mon 13:00 | `reports:weekly-digest` | weekly data-quality audit email |
+| Sat 10:00 | `roasters:retry-inactive` | weekend retry of deactivated roasters; reactivate the recovered |
+| Mon 13:00 | `reports:weekly-digest` | weekly data-quality audit email (incl. itemized dropped beans) |
 | Mon 13:30 | `coffees:purge-non-coffee --apply` | weekly non-coffee catalogue sweep |
 | 1st 12:00 | `roasters:scrape-addresses` | monthly address / geocode sweep |
 | every 5 min | `scheduler-heartbeat` | bumps `scheduler.tick` for `/up` |

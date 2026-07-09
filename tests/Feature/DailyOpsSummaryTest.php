@@ -48,14 +48,20 @@ class DailyOpsSummaryTest extends TestCase
         DB::table('roasters')->where('id', $r->id)->update(['created_at' => now()->subHours($hours)]);
     }
 
-    private function reject(Roaster $r, string $reason): void
+    private function reject(Roaster $r, string $reason, string $coffeeName = 'Some Bean'): void
     {
         ScraperRejectionLog::create([
             'roaster_id' => $r->id,
             'coffee_id' => null,
-            'coffee_name' => 'Some Bean',
+            'coffee_name' => $coffeeName,
             'reason' => $reason,
-            'context' => ['note' => 'test'],
+            // Realistic offending numbers so the itemized email lines render.
+            'context' => [
+                'price' => 19,
+                'grams' => 100,
+                'cpg' => $reason === ScraperRejectionLog::REASON_CPG_OUT_OF_BAND ? 19.0 : null,
+                'source_size_label' => '100g',
+            ],
         ]);
     }
 
@@ -117,6 +123,16 @@ class DailyOpsSummaryTest extends TestCase
         $this->assertSame(1, $report['rejections']['by_reason']['price_non_positive']);
         $this->assertSame(2, $report['rejections']['by_reason']['cpg_out_of_band']);
         $this->assertSame(2, $report['rejections']['top_roasters'][0]['count']); // worst offender first
+
+        // Itemized drops: which beans, which reason, with the offending numbers.
+        $this->assertCount(3, $report['rejections']['items']);
+        $item = $report['rejections']['items'][0];
+        $this->assertSame('Some Bean', $item['coffee']);
+        $this->assertContains($item['reason'], [
+            ScraperRejectionLog::REASON_PRICE_NON_POSITIVE,
+            ScraperRejectionLog::REASON_CPG_OUT_OF_BAND,
+        ]);
+        $this->assertSame(100, $item['grams']);
 
         // Mail — confirmed flowing.
         $this->assertTrue($report['mail']['healthy']);
@@ -180,6 +196,10 @@ class DailyOpsSummaryTest extends TestCase
         $this->assertStringContainsString('New roasters', $issues);
         $this->assertStringContainsString('Crash Coffee', $issues);
         $this->assertStringContainsString('failing their import', $issues);
+        // The itemized dropped-bean list renders the bean name + reason detail.
+        $this->assertStringContainsString('Which beans', $issues);
+        $this->assertStringContainsString('Some Bean', $issues);
+        $this->assertStringContainsString('Price-per-gram out of band', $issues);
 
         // Reset to a clean state for the all-clear render.
         Roaster::query()->delete();
