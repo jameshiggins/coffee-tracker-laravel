@@ -84,7 +84,22 @@ final class Shared
         if (is_readable($cacert)) {
             $opts['verify'] = $cacert;
         }
-        $opts['headers']['User-Agent'] = 'SpecialtyCoffeeRoasters/1.0 (+contact: directory)';
+        // Present as a real browser. An honest bot UA
+        // ("SpecialtyCoffeeRoasters/1.0") sails through from a residential IP
+        // but scores as high-risk from a datacenter IP (Fly.io) — Cloudflare and
+        // similar WAFs on the storefronts then 403/challenge the request. That
+        // was silently failing ~a third of the daily import in production while
+        // every site imported fine from a laptop. A browser User-Agent + the
+        // Accept headers a browser actually sends lowers the bot score enough to
+        // pass. Mirrors the Safari-shaped UA CheckLinks already uses for the same
+        // reason; keeps a small "roastmap/1.0" honesty tag. Callers that need a
+        // different identity (NominatimGeocoder's usage-policy UA) override it
+        // via ->withHeaders(), which merges on top of these.
+        $opts['headers']['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            . 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 roastmap/1.0';
+        $opts['headers']['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,'
+            . 'image/avif,image/webp,*/*;q=0.8';
+        $opts['headers']['Accept-Language'] = 'en-CA,en;q=0.9';
         return $opts;
     }
 
