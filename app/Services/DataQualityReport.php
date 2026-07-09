@@ -22,6 +22,9 @@ use Illuminate\Support\Carbon;
  */
 class DataQualityReport
 {
+    /** Cap the itemized dropped-bean list so a runaway feed can't bloat the email. */
+    public const MAX_REJECTION_ITEMS = 50;
+
     public function __construct(
         private DuplicateRoasterDetector $duplicates = new DuplicateRoasterDetector(),
         private AddressQualityChecker $addresses = new AddressQualityChecker(),
@@ -94,6 +97,9 @@ class DataQualityReport
                 'total' => $rejectionTotal,
                 'by_reason' => $rejectionByReason,
                 'top_roasters' => $rejectionTopRoasters,
+                // Itemized dropped beans (name + reason + offending numbers) so
+                // the digest names WHICH beans were dropped, not just how many.
+                'items' => ScraperRejectionLog::itemizedSnapshot(self::MAX_REJECTION_ITEMS),
             ],
             'duplicates' => [
                 'host_groups' => count($dup['host_groups']),

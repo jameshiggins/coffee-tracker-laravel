@@ -64,6 +64,24 @@ Worst offenders:
 - {{ $row['roaster'] }} — **{{ $row['count'] }}**
 @endforeach
 @endif
+
+@if(!empty($rejections['items']))
+Which beans:
+@foreach($rejections['items'] as $it)
+@php
+    $bits = [];
+    if (($it['price'] ?? null) !== null) { $bits[] = '$'.$it['price']; }
+    if (($it['grams'] ?? null) !== null) { $bits[] = $it['grams'].'g'; }
+    $detail = implode(' / ', $bits);
+    if (($it['cpg'] ?? null) !== null) { $detail .= ' = '.$it['cpg'].'¢/g'; }
+    if (!empty($it['size_label'])) { $detail .= ' — “'.$it['size_label'].'”'; }
+@endphp
+- **{{ $it['coffee'] ?: 'Unnamed variant' }}** ({{ $it['roaster'] }}) — {{ $reasonLabels[$it['reason']] ?? $it['reason'] }}{{ $detail !== '' ? ': '.$detail : '' }}
+@endforeach
+@if($rejections['total'] > count($rejections['items']))
+_…and {{ $rejections['total'] - count($rejections['items']) }} more not shown._
+@endif
+@endif
 @endif
 
 ## Mail delivery

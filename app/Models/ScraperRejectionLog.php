@@ -30,6 +30,35 @@ class ScraperRejectionLog extends Model
         'context' => 'array',
     ];
 
+    /**
+     * The currently-outstanding dropped variants, flattened for the ops emails:
+     * which bean, at which roaster, dropped for which reason, with the offending
+     * numbers (price / grams / cpg / size label) pulled out of `context`. Newest
+     * first, capped so a feed that suddenly rejects hundreds of rows can't bloat
+     * the email — callers compare the returned count against the total to show a
+     * "+N more" note.
+     *
+     * @return list<array{roaster:string,coffee:?string,reason:string,price:mixed,grams:mixed,cpg:mixed,size_label:mixed}>
+     */
+    public static function itemizedSnapshot(int $limit = 50): array
+    {
+        return static::query()
+            ->with('roaster:id,name')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get()
+            ->map(fn (self $row) => [
+                'roaster' => $row->roaster?->name ?? "#{$row->roaster_id}",
+                'coffee' => $row->coffee_name,
+                'reason' => $row->reason,
+                'price' => $row->context['price'] ?? null,
+                'grams' => $row->context['grams'] ?? null,
+                'cpg' => $row->context['cpg'] ?? null,
+                'size_label' => $row->context['source_size_label'] ?? null,
+            ])
+            ->all();
+    }
+
     public function roaster(): BelongsTo
     {
         return $this->belongsTo(Roaster::class);
