@@ -623,6 +623,22 @@ class SharedTest extends TestCase
 
     // ── sanitizeUtf8 ──────────────────────────────────────────────────────
 
+    // ── clientOptions (outbound HTTP identity) ────────────────────────────
+
+    public function test_client_options_present_as_a_browser_to_survive_waf_bot_scoring(): void
+    {
+        // The importer polls storefronts from a datacenter IP; an honest-bot UA
+        // gets 403'd by Cloudflare/WAFs there (fine from a laptop). A browser UA
+        // + the Accept headers a browser sends is what keeps the daily import
+        // from silently losing a third of the catalog.
+        $headers = Shared::clientOptions()['headers'];
+
+        $this->assertStringStartsWith('Mozilla/5.0', $headers['User-Agent']);
+        $this->assertStringContainsString('Chrome/', $headers['User-Agent']);
+        $this->assertArrayHasKey('Accept', $headers);
+        $this->assertArrayHasKey('Accept-Language', $headers);
+    }
+
     public function test_sanitizeUtf8_preserves_clean_utf8(): void
     {
         $this->assertSame('Café Saint-Henri', Shared::sanitizeUtf8('Café Saint-Henri'));
