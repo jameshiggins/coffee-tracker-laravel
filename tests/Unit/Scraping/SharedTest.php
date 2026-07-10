@@ -298,7 +298,25 @@ class SharedTest extends TestCase
             'vacuum pack / jar refill'    => ['100g Vacuum Pack/Jar Refill', '', []],
             'tin refill'                  => ['Coffee Tin Refill', 'Coffee', []],
             'refill for canister'         => ['Refill for Canister', '', []],
+            // Moving Coffee wholesale tiers, publicly listed alongside retail.
+            'wholesale WS'                => ['WS - AJI COE#6', 'Coffee Bean', []],
+            'wholesale WS3'               => ['WS3 - Gesha Village Bench Maji Gesha N', '', []],
+            'wholesale WS-Max'            => ['WS-Max - Q ESPRESSO', 'Coffee Bean', ['WS-Max']],
+            'wholesale no-space delim'    => ['WS-Max- La Bandera Geisha N', 'Coffee Bean', []],
         ];
+    }
+
+    /**
+     * The wholesale-prefix reject must be anchored: real coffees whose names
+     * merely start with a W/S are unaffected — only a leading "WS - "/"WS3 - "/
+     * "WS-Max - " wholesale SKU delimiter is rejected.
+     */
+    public function test_looks_like_coffee_keeps_coffees_that_are_not_wholesale_skus(): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee('Gesha Village Bench Maji Gesha N', 'Coffee Bean', ['#coffee']));
+        $this->assertTrue(Shared::looksLikeCoffee('Washed Ethiopia Yirgacheffe', 'Coffee', []));
+        $this->assertTrue(Shared::looksLikeCoffee('Wush Wush - Colombia', 'Coffee', [])); // varietal, not "WS -"
+        $this->assertTrue(Shared::looksLikeCoffee('Westside Blend', 'Coffee', []));
     }
 
     /**
