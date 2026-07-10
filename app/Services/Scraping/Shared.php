@@ -359,6 +359,15 @@ final class Shared
         // catches these, but spell out the multi-word forms for clarity and
         // to survive any future tokenizer change.
         if (preg_match('/\b(accessor|equipment|grinder|brewing\s+gear)\b/i', $type)) return false;
+        // Wholesale SKUs. Some roasters publicly list wholesale tiers on their
+        // storefront alongside retail bags — Moving Coffee prefixes them
+        // "WS - ", "WS3 - ", "WS-Max - " (24 of their ~96 products), which
+        // imported as regular coffees at fake-cheap per-gram prices AND
+        // duplicated the retail bean (three "Bench Maji Gesha" entries). These
+        // aren't consumer products. Match a leading WS wholesale prefix + its
+        // " - " name delimiter; anchored so no real coffee name is caught (none
+        // start with "WS - ").
+        if (preg_match('/^\s*ws(?:\d+|-\w+)?\s*-\s/i', $title)) return false;
         // Hard exclusions by title keywords.
         if (str_contains($titleLower, 'gift card') || str_contains($titleLower, 'subscription')) return false;
         if (str_contains($titleLower, 'sample set') || str_contains($titleLower, 'sample pack')) return false;
