@@ -1,0 +1,18 @@
+[Unit]
+Description=Roon to Aerial Views now-playing bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust paths and values for your machine
+Environment=SHIELD_HOST=192.168.1.50
+Environment=SHIELD_PORT=8081
+# Environment=ROON_ZONE=Living Room
+# Environment=ROON_HOST=192.168.1.10
+ExecStart=/usr/bin/python3 /opt/roon-aerial-bridge/roon_aerial_bridge.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
