@@ -418,8 +418,10 @@ class RoasterImporter
             'varietal' => ($c['varietal'] ?? null) ?: $extractedVarietal,
             'roast_level' => ($c['roast_level'] ?? null) ?: $extractedRoast,
             'elevation_meters' => $extractedElevation,
-            'product_url' => $c['product_url'] ?? null,
-            'image_url' => $c['image_url'] ?? null,
+            // Scheme-validate scraped URLs (only http(s) survive) — they render
+            // as href/src in the SPA, so a javascript:/data: URL would be XSS.
+            'product_url' => Shared::safeHttpUrl($c['product_url'] ?? null),
+            'image_url' => Shared::safeHttpUrl($c['image_url'] ?? null),
             'is_blend' => $c['is_blend'] ?? false,
             'removed_at' => null, // un-remove if it had been soft-removed
         ];
@@ -511,7 +513,8 @@ class RoasterImporter
             $seen[$grams] = true;
             // Per-variant link from the scraper (Shopify ?variant=<id> pattern)
             // takes precedence; fall back to the coffee-level URL otherwise.
-            $variantLink = $v['purchase_link'] ?? $purchaseLink;
+            // Scheme-validated — this renders as the "Buy" href in the SPA.
+            $variantLink = Shared::safeHttpUrl($v['purchase_link'] ?? $purchaseLink);
 
             $row = $existing->get($grams);
             if ($row) {

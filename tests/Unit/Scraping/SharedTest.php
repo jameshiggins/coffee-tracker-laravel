@@ -641,6 +641,40 @@ class SharedTest extends TestCase
 
     // ── sanitizeUtf8 ──────────────────────────────────────────────────────
 
+    // ── safeHttpUrl (stored-XSS gate) ─────────────────────────────────────
+
+    /** @return array<string, array{0:?string}> */
+    public static function dangerousUrlCases(): array
+    {
+        return [
+            'javascript'          => ['javascript:alert(1)'],
+            'javascript spaced'   => ['  javascript:alert(document.cookie)  '],
+            'JavaScript cased'    => ['JavaScript:alert(1)'],
+            'data html'           => ['data:text/html,<script>alert(1)</script>'],
+            'vbscript'            => ['vbscript:msgbox(1)'],
+            'file'                => ['file:///etc/passwd'],
+            'relative path'       => ['/products/x'],
+            'bare word'           => ['notaurl'],
+            'empty'               => [''],
+            'whitespace'          => ['   '],
+            'null'                => [null],
+        ];
+    }
+
+    #[DataProvider('dangerousUrlCases')]
+    public function test_safe_http_url_rejects_non_web_schemes(?string $url): void
+    {
+        $this->assertNull(Shared::safeHttpUrl($url));
+    }
+
+    public function test_safe_http_url_keeps_web_urls_and_trims(): void
+    {
+        $this->assertSame('https://roaster.example/products/x', Shared::safeHttpUrl('https://roaster.example/products/x'));
+        $this->assertSame('http://roaster.example/x?variant=9', Shared::safeHttpUrl('http://roaster.example/x?variant=9'));
+        $this->assertSame('//cdn.example/img.jpg', Shared::safeHttpUrl('//cdn.example/img.jpg'));
+        $this->assertSame('https://x.example/p', Shared::safeHttpUrl('  https://x.example/p  '));
+    }
+
     // ── clientOptions (outbound HTTP identity) ────────────────────────────
 
     public function test_client_options_present_as_a_browser_to_survive_waf_bot_scoring(): void

@@ -53,6 +53,31 @@ class RoasterImportTest extends TestCase
         $this->assertSame(2, $coffee->variants()->count());
     }
 
+    public function test_import_strips_dangerous_scheme_urls_from_scraped_products(): void
+    {
+        // A compromised/hostile storefront returns a javascript: image URL. It
+        // must never reach the DB — the SPA renders image_url straight into an
+        // <img src>, so a stored javascript:/data: URL would be XSS.
+        Http::fake([
+            'evil.test/products.json*' => Http::response([
+                'products' => [[
+                    'id' => 99, 'title' => 'Colombia Huila', 'product_type' => 'Coffee',
+                    'tags' => ['Single Origin'], 'body_html' => '<p>Caramel.</p>',
+                    'handle' => 'colombia-huila',
+                    'images' => [['src' => 'javascript:alert(document.cookie)']],
+                    'variants' => [['id' => 1, 'title' => '250g', 'price' => '22.00', 'available' => true]],
+                ]],
+            ], 200),
+            '*' => Http::response('', 404),
+        ]);
+
+        $roaster = (new RoasterImporter())->import('https://evil.test', name: 'Evil Co', city: 'Vancouver');
+        $coffee = $roaster->coffees()->where('name', 'Colombia Huila')->first();
+
+        $this->assertNotNull($coffee, 'the coffee still imports');
+        $this->assertNull($coffee->image_url, 'the javascript: image URL is stripped to null');
+    }
+
     public function test_dns_failure_stamps_import_failing_since_and_preserves_it_across_failures(): void
     {
         // Throwing fake = a real connection failure ("could not resolve host").
