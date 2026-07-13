@@ -20,7 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         unzip \
         ca-certificates \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" pdo pdo_sqlite mbstring zip exif pcntl bcmath gd intl opcache \
+    && docker-php-ext-install -j"$(nproc)" pdo pdo_sqlite mbstring zip exif pcntl bcmath gd intl \
+    # opcache ships pre-built in the official php image — ENABLE the existing
+    # .so (instant). Do NOT `docker-php-ext-install opcache`: that recompiles it
+    # (incl. the JIT via dynasm) and pushed the Fly remote builder past its
+    # build deadline.
+    && docker-php-ext-enable opcache \
     && rm -rf /var/lib/apt/lists/*
 
 # Production PHP tuning (opcache + memory) — the base image compiles opcache but
