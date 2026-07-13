@@ -15,8 +15,17 @@ jobs:
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
-    # Only proceed when the upstream CI run actually passed.
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Deploy ONLY for a green CI run that came from a push to this repo's own
+    # main — never from a pull_request run. The workflow_run `branches: [main]`
+    # filter matches on the triggering run's head_branch, so a FORK PR whose
+    # source branch is literally named "main" would otherwise satisfy it and
+    # deploy the fork's head_sha (with this repo's FLY_API_TOKEN). The event ==
+    # 'push' + same-repo head check closes that hole.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main'
     concurrency: deploy-group    # ensure only one deploy runs at a time
     steps:
       - uses: actions/checkout@v6
