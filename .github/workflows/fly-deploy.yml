@@ -28,7 +28,7 @@ jobs:
       github.event.workflow_run.head_branch == 'main'
     concurrency: deploy-group    # ensure only one deploy runs at a time
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Deploy the EXACT commit CI just verified — a bare checkout grabs
           # default-branch HEAD, which can be a newer commit whose own CI run
