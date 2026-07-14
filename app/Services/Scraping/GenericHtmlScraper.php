@@ -107,6 +107,42 @@ class GenericHtmlScraper implements RoasterScraper
         return $out;
     }
 
+    /**
+     * schema.org price may be a bare number ("24.00") or carry a currency
+     * symbol / thousands separators ("$1,299.00"). A plain (float) cast turns
+     * "$24.00" into 0.0, which the import sanity gate then drops as non-positive
+     * — silently losing a valid product. Strip to digits + decimal point.
+     */
+    private function parsePrice(mixed $raw): ?float
+    {
+        if ($raw === null) {
+            return null;
+        }
+        if (is_int($raw) || is_float($raw)) {
+            return (float) $raw;
+        }
+        $cleaned = preg_replace('/[^0-9.]/', '', (string) $raw);
+
+        return ($cleaned === '' || $cleaned === '.') ? null : (float) $cleaned;
+    }
+
+    /**
+     * True unless the offer's schema.org availability marks it sold out. The old
+     * check only matched the exact "https://schema.org/OutOfStock" string, so an
+     * "http://" prefix, a bare "OutOfStock", or "SoldOut"/"Discontinued" all read
+     * as in-stock — surfacing genuinely sold-out beans as available. Match the
+     * token regardless of the URL prefix. Unspecified availability = available.
+     */
+    private function offerAvailable(array $offer): bool
+    {
+        $avail = strtolower(str_replace(['_', '-', ' '], '', (string) ($offer['availability'] ?? '')));
+
+        return $avail === ''
+            || (! str_contains($avail, 'outofstock')
+                && ! str_contains($avail, 'soldout')
+                && ! str_contains($avail, 'discontinued'));
+    }
+
     private function productFromSchema(array $obj, string $origin): ?array
     {
         $name = trim((string) ($obj['name'] ?? ''));
@@ -121,15 +157,12 @@ class GenericHtmlScraper implements RoasterScraper
             $offerList = isset($offers['@type']) ? [$offers] : (array_is_list($offers) ? $offers : [$offers]);
             foreach ($offerList as $o) {
                 if (!is_array($o)) continue;
-                if (isset($o['price'])) {
-                    $price = (float) $o['price'];
-                    $available = (string) ($o['availability'] ?? '') !== 'https://schema.org/OutOfStock';
-                    break;
-                }
-                if (isset($o['lowPrice'])) {
-                    $price = (float) $o['lowPrice'];
-                    break;
-                }
+                // AggregateOffer uses lowPrice; a plain Offer uses price.
+                $parsed = $this->parsePrice($o['price'] ?? $o['lowPrice'] ?? null);
+                if ($parsed === null) continue;
+                $price = $parsed;
+                $available = $this->offerAvailable($o);
+                break;
             }
         }
 
