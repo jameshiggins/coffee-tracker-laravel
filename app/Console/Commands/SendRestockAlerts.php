@@ -22,11 +22,22 @@ class SendRestockAlerts extends Command
 
     public function handle(): int
     {
-        // Variants that flipped to in-stock in the last 24 hours.
+        // Variants that flipped OUT-OF-STOCK → IN-STOCK in the last 24 hours.
+        //
+        // The importer stamps in_stock_changed_at = now() when a variant is
+        // FIRST seen (so pruneStaleOutOfStock can age it), even for a brand-new
+        // in-stock variant that was never sold out. Without the created_at guard
+        // below, adding a new bag size to a wishlisted coffee — or any first
+        // import of an in-stock variant — would fire a false "back in stock!"
+        // email. A genuine restock EXISTED before it flipped, so its
+        // in_stock_changed_at (this run) is strictly later than its created_at
+        // (a prior run); a first-seen variant has in_stock_changed_at <=
+        // created_at. That single comparison separates the two.
         $recentlyRestocked = CoffeeVariant::query()
             ->where('in_stock', true)
             ->whereNotNull('in_stock_changed_at')
             ->where('in_stock_changed_at', '>=', now()->subHours(24))
+            ->whereColumn('in_stock_changed_at', '>', 'created_at')
             ->pluck('coffee_id')
             ->unique()
             ->values();
