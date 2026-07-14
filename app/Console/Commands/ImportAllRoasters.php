@@ -52,6 +52,19 @@ class ImportAllRoasters extends Command
 
         $this->newLine();
         $this->info("Done: {$ok} imported, " . count($failed) . " failed.");
+
+        // Systemic-failure signal. A handful of dead roasters is normal (sites
+        // go down) and stays SUCCESS — the daily ops email itemizes them. But
+        // if EVERY attempted roaster failed, something is broadly wrong (network
+        // down, a bad deploy, a dependency break), so exit non-zero: the
+        // scheduler's emailOutputOnFailure then pages instead of the failure
+        // hiding behind a green exit code.
+        if ($ok === 0 && $roasters->isNotEmpty()) {
+            $this->error('Every roaster failed to import — treating as a systemic failure.');
+
+            return self::FAILURE;
+        }
+
         return self::SUCCESS;
     }
 
