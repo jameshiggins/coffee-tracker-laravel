@@ -18,7 +18,7 @@ jobs:
         with:
           php-version: '8.2'
           extensions: mbstring, sqlite3, pdo_sqlite, intl, bcmath
-          coverage: none
+          coverage: pcov
           tools: composer:v2
 
       - name: Cache Composer packages
@@ -43,11 +43,14 @@ jobs:
           DB_DATABASE: database/database.sqlite
         run: php artisan migrate --force
 
+      # --coverage prints a per-file line-coverage summary in the job log so
+      # coverage is measured on every PR, not guessed. Add --min=<pct> here
+      # once a baseline is agreed to make it a hard floor.
       - name: Run tests
         env:
           DB_CONNECTION: sqlite
           DB_DATABASE: database/database.sqlite
-        run: php artisan test
+        run: php artisan test --coverage
 
       # docker/entrypoint.sh runs these on every prod boot under `set -e` —
       # a config closure or unserializable route fatals there and crash-loops
