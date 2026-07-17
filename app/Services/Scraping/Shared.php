@@ -80,9 +80,17 @@ final class Shared
     public static function clientOptions(): array
     {
         $opts = [];
-        $cacert = storage_path('cacert.pem');
-        if (is_readable($cacert)) {
-            $opts['verify'] = $cacert;
+        // storage_path() resolves via the app container; guard it so a caller
+        // outside a booted app (a unit test, an early bootstrap hook) still gets
+        // usable client options instead of a container error. No-op in prod,
+        // where the container is always up and the bundle is present.
+        try {
+            $cacert = storage_path('cacert.pem');
+            if (is_readable($cacert)) {
+                $opts['verify'] = $cacert;
+            }
+        } catch (\Throwable) {
+            // fall back to the system CA bundle
         }
         // Present as a real browser. An honest bot UA
         // ("SpecialtyCoffeeRoasters/1.0") sails through from a residential IP
@@ -101,6 +109,35 @@ final class Shared
             . 'image/avif,image/webp,*/*;q=0.8';
         $opts['headers']['Accept-Language'] = 'en-CA,en;q=0.9';
         return $opts;
+    }
+
+    /**
+     * Accept a scraped URL only if it is a safe web URL, else return null.
+     *
+     * Scraped product/image/purchase links are stored as-is and the SPA renders
+     * them straight into href/src. A compromised or hostile storefront (or the
+     * JSON-LD generic scraper reading an attacker-influenced page) could return
+     * a `javascript:` or `data:` URL, which becomes clickable XSS in the SPA.
+     * Allow only http(s) absolute URLs and protocol-relative `//host/...` (the
+     * browser resolves those to https on our https pages); everything else —
+     * javascript:, data:, vbscript:, file:, relative paths — collapses to null
+     * so the field simply doesn't render.
+     */
+    public static function safeHttpUrl(?string $url): ?string
+    {
+        if (! is_string($url)) {
+            return null;
+        }
+        $url = trim($url);
+        if ($url === '') {
+            return null;
+        }
+        if (str_starts_with($url, '//')) {
+            return $url;
+        }
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) ? $url : null;
     }
 
     /** Strip an URL down to scheme + host (no path, query, or fragment). */

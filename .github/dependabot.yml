@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # PHP dependencies. Weekly, grouped so a Symfony/Laravel patch wave lands as
+  # one reviewable PR rather than a dozen. Security updates come through on
+  # their own regardless of the schedule.
+  - package-ecosystem: composer
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      php-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions (checkout, setup-php, flyctl, cache) — pinned versions drift
+  # and occasionally carry security fixes of their own.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

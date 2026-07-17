@@ -21,7 +21,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" pdo pdo_sqlite mbstring zip exif pcntl bcmath gd intl \
+    # opcache ships pre-built in the official php image — ENABLE the existing
+    # .so (instant). Do NOT `docker-php-ext-install opcache`: that recompiles it
+    # (incl. the JIT via dynasm) and pushed the Fly remote builder past its
+    # build deadline.
+    && docker-php-ext-enable opcache \
     && rm -rf /var/lib/apt/lists/*
+
+# Production PHP tuning (opcache + memory) — the base image compiles opcache but
+# never configures it, so it was effectively off in prod.
+COPY docker/php-prod.ini /usr/local/etc/php/conf.d/zz-prod.ini
 
 COPY --from=composer /usr/bin/composer /usr/bin/composer
 
@@ -32,7 +41,10 @@ RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-av
     && sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf \
     && sed -ri "s/Listen 80\$/Listen 8080/" /etc/apache2/ports.conf \
     && sed -ri "s/<VirtualHost \*:80>/<VirtualHost *:8080>/" /etc/apache2/sites-available/000-default.conf \
-    && a2enmod rewrite
+    && a2enmod rewrite deflate
+
+# gzip text/JSON responses (mod_deflate enabled just above).
+COPY docker/apache-deflate.conf /etc/apache2/conf-enabled/deflate.conf
 
 WORKDIR /var/www/html
 

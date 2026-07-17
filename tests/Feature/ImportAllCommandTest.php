@@ -42,6 +42,38 @@ class ImportAllCommandTest extends TestCase
         $this->assertSame(2, Coffee::count());
     }
 
+    public function test_command_exits_nonzero_when_every_roaster_fails(): void
+    {
+        // Total failure = systemic (network down / bad deploy). The command must
+        // exit non-zero so the scheduler's emailOutputOnFailure pages, instead
+        // of a broken nightly import hiding behind a green exit code.
+        Roaster::create(['name' => 'Alpha', 'slug' => 'alpha', 'city' => 'X',
+            'website' => 'https://alpha.example.com', 'is_active' => true, 'has_shipping' => true]);
+        Roaster::create(['name' => 'Beta', 'slug' => 'beta', 'city' => 'Y',
+            'website' => 'https://beta.example.com', 'is_active' => true, 'has_shipping' => true]);
+
+        Http::fake(['*' => fn () => throw new \Illuminate\Http\Client\ConnectionException('network down')]);
+
+        $this->artisan('roasters:import-all')->assertExitCode(1);
+    }
+
+    public function test_command_stays_green_when_at_least_one_roaster_succeeds(): void
+    {
+        // Individual dead roasters are normal — a partial failure is still a
+        // successful run (the ops email itemizes the failures).
+        Roaster::create(['name' => 'Alpha', 'slug' => 'alpha', 'city' => 'X',
+            'website' => 'https://alpha.example.com', 'is_active' => true, 'has_shipping' => true]);
+        Roaster::create(['name' => 'Beta', 'slug' => 'beta', 'city' => 'Y',
+            'website' => 'https://beta.example.com', 'is_active' => true, 'has_shipping' => true]);
+
+        Http::fake([
+            'alpha.example.com/*' => Http::response($this->shopifyResponse('Alpha Bean'), 200),
+            'beta.example.com/*' => fn () => throw new \Illuminate\Http\Client\ConnectionException('dead'),
+        ]);
+
+        $this->artisan('roasters:import-all')->assertExitCode(0);
+    }
+
     public function test_command_skips_roasters_without_a_website(): void
     {
         Roaster::create(['name' => 'NoSite', 'slug' => 'nosite', 'city' => 'X', 'website' => null,

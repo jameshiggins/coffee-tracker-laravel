@@ -10,13 +10,23 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.1 is the hard local-dev floor (composer.json php "^8.1"); 8.2 is
+        # CI/prod. Testing both catches any 8.2-only syntax before it breaks a
+        # local artisan/test run — the constraint the whole team relies on.
+        php-version: ['8.1', '8.2']
+
+    name: test (PHP ${{ matrix.php-version }})
+
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: ${{ matrix.php-version }}
           extensions: mbstring, sqlite3, pdo_sqlite, intl, bcmath
           coverage: pcov
           tools: composer:v2
@@ -30,6 +40,14 @@ jobs:
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
+
+      # Surface known CVEs in locked deps. Informational (continue-on-error) so
+      # an upstream advisory with no in-constraint fix (e.g. a laravel/framework
+      # CVE needing a major bump) can't wedge the pipeline — but it's visible in
+      # the run and Dependabot opens PRs for anything patchable.
+      - name: Security audit (composer)
+        run: composer audit --no-interaction
+        continue-on-error: true
 
       - name: Prepare environment
         run: |

@@ -25,6 +25,13 @@ class RestockAlertsTest extends TestCase
             'in_stock' => true,
             'in_stock_changed_at' => now(),
         ]);
+        // Model a GENUINE restock: the variant existed before (created days ago)
+        // and flipped back to in-stock just now. The command distinguishes this
+        // from a brand-new variant by created_at predating in_stock_changed_at.
+        \Illuminate\Support\Facades\DB::table('coffee_variants')
+            ->where('id', $v->id)
+            ->update(['created_at' => now()->subDays(5)]);
+        $v->refresh();
         return ['roaster' => $r, 'coffee' => $c, 'variant' => $v];
     }
 
@@ -51,6 +58,31 @@ class RestockAlertsTest extends TestCase
         Mail::assertQueued(RestockDigest::class, function ($m) use ($user) {
             return $m->hasTo($user->email);
         });
+    }
+
+    public function test_does_not_alert_on_a_brand_new_in_stock_variant(): void
+    {
+        // Regression: a first-seen variant stamps in_stock_changed_at at
+        // creation (created_at == in_stock_changed_at). It was never out of
+        // stock, so a wishlister must NOT get a "back in stock" email — e.g.
+        // when a roaster adds a new bag size to a coffee someone wishlisted.
+        Mail::fake();
+        $r = Roaster::create(['name' => 'New R', 'slug' => 'new-r', 'city' => 'V']);
+        $c = $r->coffees()->create(['name' => 'Fresh', 'origin' => 'Kenya']);
+        $t = now();
+        $v = $c->variants()->create([
+            'bag_weight_grams' => 250, 'price' => 24, 'in_stock' => true, 'in_stock_changed_at' => $t,
+        ]);
+        // First-seen: created_at exactly equals the stock stamp (no transition).
+        \Illuminate\Support\Facades\DB::table('coffee_variants')
+            ->where('id', $v->id)->update(['created_at' => $t]);
+
+        $user = $this->makeUser('fresh@example.com');
+        Wishlist::create(['user_id' => $user->id, 'coffee_id' => $c->id]);
+
+        $this->artisan('alerts:restock')->assertExitCode(0);
+
+        Mail::assertNothingQueued();
     }
 
     public function test_skips_unverified_users(): void
