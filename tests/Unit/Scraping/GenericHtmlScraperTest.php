@@ -174,4 +174,24 @@ class GenericHtmlScraperTest extends TestCase
 
         $this->assertSame([], $out);
     }
+
+    public function test_platform_key_and_fallback_can_handle(): void
+    {
+        $this->assertSame('generic', $this->scraper->platformKey());
+        $this->assertTrue($this->scraper->canHandle('https://anything.example'));
+    }
+
+    public function test_malformed_json_yields_no_products(): void
+    {
+        $html = '<html><head><script type="application/ld+json">{not valid json</script></head><body></body></html>';
+
+        $this->assertSame([], $this->scraper->extractProductsFromHtml($html, $this->origin));
+    }
+
+    public function test_skips_products_with_no_price(): void
+    {
+        $out = $this->extract($this->product(['offers' => null]));
+
+        $this->assertCount(0, $out);
+    }
 }
