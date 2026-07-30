@@ -47,13 +47,39 @@ class ShopifyScraper implements RoasterScraper
     {
         try {
             $endpoint = Shared::origin($url) . '/products.json?limit=1';
-            $response = SafeHttp::client(10)->acceptJson()->get($endpoint);
+            // 429-aware: a rate-limited probe must not misread as "not Shopify"
+            // (platform re-detection could then cache the wrong scraper).
+            $response = $this->getWithRateLimitRetry($endpoint, 10);
             if (!$response->ok()) return false;
             $body = $response->json();
             // Shopify returns {"products":[...]} on success even when empty.
             return is_array($body) && array_key_exists('products', $body);
         } catch (\Throwable) {
             return false;
+        }
+    }
+
+    /**
+     * GET a Shopify endpoint, honouring 429 rate limits. Shopify throttles the
+     * public products.json PER CLIENT IP across every shop on the platform —
+     * the nightly import walks ~90 Shopify stores from one Fly egress IP, so
+     * one tripped limiter used to fail every remaining Shopify roaster in the
+     * run (the "2 errors one day, 60 the next" ops-email pattern). On a 429,
+     * wait out the Retry-After header (capped, defaulted when absent) and
+     * retry a couple of times before giving up. Sleep::for is fake-able in
+     * tests (Sleep::fake()), so retries cost no real test time.
+     */
+    private function getWithRateLimitRetry(string $endpoint, int $timeout): \Illuminate\Http\Client\Response
+    {
+        $attempts = 0;
+        while (true) {
+            $response = SafeHttp::client($timeout)->acceptJson()->get($endpoint);
+            if ($response->status() !== 429 || $attempts >= 2) {
+                return $response;
+            }
+            $attempts++;
+            $retryAfter = (int) $response->header('Retry-After');
+            \Illuminate\Support\Sleep::for(min(max($retryAfter, 5), 30))->seconds();
         }
     }
 
@@ -64,7 +90,7 @@ class ShopifyScraper implements RoasterScraper
 
         for ($page = 1; $page <= self::MAX_PAGES; $page++) {
             $endpoint = $origin . '/products.json?limit=250&page=' . $page;
-            $response = SafeHttp::client(15)->acceptJson()->get($endpoint);
+            $response = $this->getWithRateLimitRetry($endpoint, 15);
             if (!$response->ok()) {
                 // A first-page failure is a hard error (the store is down /
                 // not really Shopify); a later-page failure just ends
