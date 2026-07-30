@@ -23,6 +23,9 @@ Route::post('/auth/reset-password', [PasswordResetController::class, 'reset'])
 
 // Public
 Route::get('/roasters', [RoasterApiController::class, 'index']);
+// Slim landing-page payload: roaster scalars + aggregates, no coffee tree.
+// MUST be declared before /roasters/{roaster} or the slug binding eats it.
+Route::get('/roasters/summary', [RoasterApiController::class, 'summary']);
 // Trust#1: directory coverage + freshness summary.
 Route::get('/stats', [RoasterApiController::class, 'stats']);
 Route::get('/roasters/{roaster}', [RoasterApiController::class, 'show']);

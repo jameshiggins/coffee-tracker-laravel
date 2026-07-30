@@ -66,6 +66,91 @@ class RoasterApiController extends Controller
         ], 200, ['ETag' => $etag, 'Cache-Control' => $cacheControl], JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
+    /**
+     * Slim directory for the landing list (2026-07 review H-payload): every
+     * scalar the roaster list renders, plus precomputed aggregates — but NO
+     * nested coffees/variants. The full /api/roasters payload is ~2.5 MB raw
+     * because it serializes every variant of every bean; the landing page only
+     * ever shows per-roaster rollups, so shipping the rollups directly cuts the
+     * transfer (and the client-side JSON parse) by ~20x. /api/roasters stays
+     * unchanged for the beans directory + map, which genuinely need the tree.
+     *
+     * search_terms: the landing search also matches bean names/origins; a
+     * lowercased, deduped blob per roaster keeps that working without shipping
+     * the coffee objects (and gzip flattens the repetition).
+     */
+    public function summary(Request $request): SymfonyResponse
+    {
+        $version = $this->directoryVersion();
+        $etag = '"'.$version.'"';
+        $cacheControl = 'public, max-age=300';
+
+        if (trim((string) $request->header('If-None-Match')) === $etag) {
+            return response('', 304, ['ETag' => $etag, 'Cache-Control' => $cacheControl]);
+        }
+
+        $roasters = $this->cacheDirectory('api:roasters:summary', $version, function () {
+            $roasters = Roaster::query()
+                ->where('is_active', true)
+                ->with([
+                    'coffees' => fn ($q) => $q->whereNull('removed_at')
+                        ->select(['id', 'roaster_id', 'name', 'origin', 'best_price_per_gram', 'removed_at']),
+                    'coffees.variants' => fn ($q) => $q
+                        ->select(['id', 'coffee_id', 'price', 'bag_weight_grams', 'in_stock']),
+                ])
+                ->orderBy('name')
+                ->get();
+
+            return $roasters->map(function (Roaster $r) {
+                $coffees = $r->coffees;
+
+                // Mirrors the SPA's isCoffeeInStock(): >=1 in-stock variant.
+                $inStock = $coffees->filter(
+                    fn ($c) => $c->variants->contains(fn ($v) => (bool) $v->in_stock)
+                );
+
+                // ¢/g rollups over weighable variants, matching the landing
+                // page's old client-side priceRange(): "all" spans every
+                // variant, "in-stock" only the buyable ones.
+                $cpg = function ($coffeeSet, bool $inStockOnly) {
+                    $values = $coffeeSet
+                        ->flatMap(fn ($c) => $c->variants)
+                        ->filter(fn ($v) => $v->bag_weight_grams > 0 && (! $inStockOnly || $v->in_stock))
+                        ->map(fn ($v) => ((float) $v->price / $v->bag_weight_grams) * 100);
+
+                    return $values->isEmpty()
+                        ? ['min' => null, 'max' => null]
+                        : ['min' => round($values->min(), 2), 'max' => round($values->max(), 2)];
+                };
+                $cpgInStock = $cpg($coffees, true);
+                $cpgAll = $cpg($coffees, false);
+
+                $searchTerms = $coffees
+                    ->flatMap(fn ($c) => [$c->name, $c->origin])
+                    ->filter()
+                    ->map(fn ($s) => mb_strtolower(trim((string) $s)))
+                    ->unique()
+                    ->implode(' | ');
+
+                return $this->roasterScalars($r) + [
+                    'coffees_count' => $coffees->count(),
+                    'in_stock_count' => $inStock->count(),
+                    'variants_count' => $coffees->sum(fn ($c) => $c->variants->count()),
+                    'cpg_min' => $cpgInStock['min'],
+                    'cpg_max' => $cpgInStock['max'],
+                    'cpg_min_all' => $cpgAll['min'],
+                    'cpg_max_all' => $cpgAll['max'],
+                    'best_price_per_gram' => $coffees->map(fn ($c) => $c->best_price_per_gram)->filter()->min(),
+                    'search_terms' => $searchTerms,
+                ];
+            })->values()->all();
+        });
+
+        return response()->json([
+            'roasters' => $roasters,
+        ], 200, ['ETag' => $etag, 'Cache-Control' => $cacheControl], JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
     public function show(Roaster $roaster): JsonResponse
     {
         // A deactivated roaster is a moderation "hide" — 404 instead of
@@ -212,7 +297,12 @@ class RoasterApiController extends Controller
         return $map;
     }
 
-    private function transformRoaster(Roaster $roaster, bool $detail = false, array $ratingMap = []): array
+    /**
+     * The roaster-level scalar fields shared by every directory payload.
+     * Extracted so the slim /roasters/summary response and the full
+     * /roasters tree can never drift on these fields.
+     */
+    private function roasterScalars(Roaster $roaster): array
     {
         return [
             'id' => $roaster->id,
@@ -239,7 +329,6 @@ class RoasterApiController extends Controller
             // domain. This keeps every row visually anchored even before the
             // background scraper has had a chance to run for new roasters.
             'favicon_url' => $roaster->favicon_url ?: $this->googleFaviconUrl($roaster->website),
-            'description' => $detail ? $roaster->description : null,
             'has_shipping' => (bool) $roaster->has_shipping,
             'shipping_cost' => $roaster->shipping_cost !== null ? (float) $roaster->shipping_cost : null,
             'free_shipping_over' => $roaster->free_shipping_over !== null ? (float) $roaster->free_shipping_over : null,
@@ -252,6 +341,13 @@ class RoasterApiController extends Controller
             // ('success' | 'empty' | 'error' | null).
             'last_imported_at' => $roaster->last_imported_at?->toIso8601String(),
             'last_import_status' => $roaster->last_import_status,
+        ];
+    }
+
+    private function transformRoaster(Roaster $roaster, bool $detail = false, array $ratingMap = []): array
+    {
+        return $this->roasterScalars($roaster) + [
+            'description' => $detail ? $roaster->description : null,
             'coffees' => $roaster->coffees->map(function ($c) use ($ratingMap) {
                 $variants = $c->variants->map(fn ($v) => [
                     'id' => $v->id,
