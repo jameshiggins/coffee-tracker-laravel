@@ -38,7 +38,17 @@ class ImportAllRoasters extends Command
 
         $ok = 0;
         $failed = [];
-        foreach ($roasters as $r) {
+        foreach ($roasters as $i => $r) {
+            // Pace the run. ~90 of these stores are Shopify, which rate-limits
+            // products.json PER CLIENT IP platform-wide — a zero-gap burst from
+            // one Fly egress IP tripped their limiter and 429-failed every
+            // remaining Shopify roaster on bad nights. A couple of seconds
+            // between roasters keeps the request rate under the radar and costs
+            // ~4 minutes at 11:00 UTC. Skipped for a single --only re-import
+            // and under the test suite (mirrors the cacheDirectory precedent).
+            if ($i > 0 && ! $slug && ! app()->runningUnitTests()) {
+                \Illuminate\Support\Sleep::for(2)->seconds();
+            }
             try {
                 $imported = $importer->import($r->website, name: $r->name, city: $r->city, region: $r->region);
                 $count = $imported->coffees()->count();
