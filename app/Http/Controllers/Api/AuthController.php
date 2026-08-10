@@ -100,12 +100,6 @@ class AuthController extends Controller
 
     private function userPayload(User $user): array
     {
-        return [
-            'id' => $user->id,
-            'email' => $user->email,
-            'display_name' => $user->display_name,
-            'avatar_url' => $user->avatar_url,
-            'email_verified' => $user->hasVerifiedEmail(),
-        ];
+        return $user->toAuthPayload();
     }
 }

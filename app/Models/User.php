@@ -62,6 +62,30 @@ class User extends Authenticatable implements MustVerifyEmail
         return $candidate;
     }
 
+    /**
+     * The user object every auth-ish response returns — register, login,
+     * GET /me, and the account-settings mutations. ONE definition so the
+     * payloads can never drift (they used to be duplicated between
+     * AuthController and a /me route closure).
+     *
+     * `google_linked` lets the SPA hint Google-sign-in users toward the
+     * forgot-password flow (their account was created with a random password
+     * they never saw, so any "enter your current password" gate needs that
+     * escape hatch spelled out).
+     */
+    public function toAuthPayload(): array
+    {
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'email' => $this->email,
+            'display_name' => $this->display_name,
+            'avatar_url' => $this->avatar_url,
+            'email_verified' => $this->hasVerifiedEmail(),
+            'google_linked' => $this->google_id !== null,
+        ];
+    }
+
     public function tastings(): HasMany
     {
         return $this->hasMany(Tasting::class);
@@ -70,6 +94,11 @@ class User extends Authenticatable implements MustVerifyEmail
     public function wishlist(): HasMany
     {
         return $this->hasMany(Wishlist::class);
+    }
+
+    public function favoriteRoasters(): HasMany
+    {
+        return $this->hasMany(RoasterFavorite::class);
     }
 
     /**

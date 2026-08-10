@@ -3,12 +3,13 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CoffeeApiController;
 use App\Http\Controllers\Api\EmailVerificationController;
+use App\Http\Controllers\Api\FavoriteRoasterController;
 use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\PublicProfileController;
 use App\Http\Controllers\Api\RoasterApiController;
 use App\Http\Controllers\Api\TastingController;
 use App\Http\Controllers\Api\WishlistController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // Public auth — brute-force throttled (login keyed on email+IP, register per-IP).
@@ -52,19 +53,14 @@ Route::get('/email/verify/{id}/{hash}', [EmailVerificationController::class, 've
 // Authenticated
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-    Route::get('/me', function (Request $request) {
-        $u = $request->user();
-        return response()->json(['user' => [
-            'id' => $u->id,
-            'email' => $u->email,
-            'display_name' => $u->display_name,
-            'avatar_url' => $u->avatar_url,
-            // Must match the register/login payload — without it the SPA reads
-            // email_verified as undefined on every page load and shows the
-            // "verify your email" banner forever, even to verified users.
-            'email_verified' => $u->hasVerifiedEmail(),
-        ]]);
-    });
+
+    // Account: one payload shape everywhere (User::toAuthPayload — shared
+    // with register/login so the SPA's auth state can never drift).
+    Route::get('/me', [ProfileController::class, 'show']);
+    Route::patch('/me', [ProfileController::class, 'update']);
+    Route::patch('/me/email', [ProfileController::class, 'updateEmail'])->middleware('throttle:6,1');
+    Route::patch('/me/password', [ProfileController::class, 'updatePassword'])->middleware('throttle:6,1');
+    Route::delete('/me', [ProfileController::class, 'destroy'])->middleware('throttle:6,1');
     Route::get('/tastings', [TastingController::class, 'index']);
     Route::post('/tastings', [TastingController::class, 'store']);
     Route::put('/tastings/{tasting}', [TastingController::class, 'update']);
@@ -73,6 +69,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wishlist', [WishlistController::class, 'index']);
     Route::post('/wishlist', [WishlistController::class, 'store']);
     Route::delete('/wishlist/{coffee}', [WishlistController::class, 'destroy']);
+
+    // Pinned/favorite roasters — the roaster-level sibling of the wishlist.
+    // {roaster} binds by slug (Roaster::getRouteKeyName), same as /roasters/{roaster}.
+    Route::get('/me/favorite-roasters', [FavoriteRoasterController::class, 'index']);
+    Route::post('/me/favorite-roasters', [FavoriteRoasterController::class, 'store']);
+    Route::delete('/me/favorite-roasters/{roaster}', [FavoriteRoasterController::class, 'destroy']);
 
     // Q15: re-send verification email (rate-limited via throttle middleware).
     Route::post('/email/verify/resend', [EmailVerificationController::class, 'resend'])

@@ -273,7 +273,9 @@ class RoasterApiController extends Controller
         if (!$website) return null;
         $host = parse_url($website, PHP_URL_HOST);
         if (!$host) return null;
-        return 'https://www.google.com/s2/favicons?domain=' . urlencode($host) . '&sz=64';
+        // 128px (not 64): the React avatar renders at up to 40 CSS px, so a
+        // 2x/3x display needs 80-120 device px to stay sharp.
+        return 'https://www.google.com/s2/favicons?domain=' . urlencode($host) . '&sz=128';
     }
 
     /** @return array<int, array{count:int, average:?float}> */

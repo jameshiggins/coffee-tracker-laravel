@@ -207,4 +207,30 @@ class RoasterApiTest extends TestCase
         $this->assertSame(1, $stats['map_coverage']['unplaced']);
     }
 
+    public function test_favicon_falls_back_to_google_s2_at_128px(): void
+    {
+        // No scraped favicon → Google S2 fallback. 128px (not 64) so the
+        // 40px UI avatar stays sharp on 2x/3x displays.
+        $this->seedRoaster();
+
+        $response = $this->getJson('/api/roasters');
+
+        $this->assertSame(
+            'https://www.google.com/s2/favicons?domain=example.com&sz=128',
+            $response->json('roasters.0.favicon_url')
+        );
+    }
+
+    public function test_scraped_favicon_passes_through_untouched(): void
+    {
+        $this->seedRoaster(['favicon_url' => 'https://example.com/apple-touch-icon.png']);
+
+        $response = $this->getJson('/api/roasters');
+
+        $this->assertSame(
+            'https://example.com/apple-touch-icon.png',
+            $response->json('roasters.0.favicon_url')
+        );
+    }
+
 }

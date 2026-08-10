@@ -70,6 +70,15 @@
                 <label>Instagram handle</label>
                 <input type="text" name="instagram" value="{{ old('instagram', $roaster->instagram) }}" placeholder="@handle">
             </div>
+            <div class="form-group">
+                <label>Logo URL (override)</label>
+                <input type="url" name="favicon_url" value="{{ old('favicon_url', $roaster->favicon_url) }}" placeholder="https://.../logo.png">
+                <p style="color:#666; font-size:12px; margin:4px 0 0;">
+                    Leave blank to use the scraped site icon (or Google's favicon service).
+                    Set this when the automatic icon is tiny or unreadable — a square PNG
+                    of 128px+ works best.
+                </p>
+            </div>
         </div>
 
         <div class="form-section">
