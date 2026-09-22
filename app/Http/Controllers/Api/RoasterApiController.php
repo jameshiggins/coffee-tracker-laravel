@@ -93,8 +93,13 @@ class RoasterApiController extends Controller
             $roasters = Roaster::query()
                 ->where('is_active', true)
                 ->with([
+                    // best_price_per_gram is an accessor computed from the
+                    // variants, not a column — the stored rollup is
+                    // best_cents_per_gram. SQLite silently treats an unknown
+                    // double-quoted identifier as a string literal, which is
+                    // the only reason selecting the accessor name ever "worked".
                     'coffees' => fn ($q) => $q->whereNull('removed_at')
-                        ->select(['id', 'roaster_id', 'name', 'origin', 'best_price_per_gram', 'removed_at']),
+                        ->select(['id', 'roaster_id', 'name', 'origin', 'best_cents_per_gram', 'removed_at']),
                     'coffees.variants' => fn ($q) => $q
                         ->select(['id', 'coffee_id', 'price', 'bag_weight_grams', 'in_stock']),
                 ])
