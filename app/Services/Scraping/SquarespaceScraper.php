@@ -170,6 +170,7 @@ class SquarespaceScraper implements RoasterScraper
                 'image_url' => $imageUrl,
                 'product_url' => $productUrl,
                 'is_blend' => Shared::isBlend($title, '', $combinedTags),
+                'tags' => array_values(array_filter(array_map(fn ($t) => trim((string) $t), $combinedTags))),
                 'variants' => $variants,
             ];
         }

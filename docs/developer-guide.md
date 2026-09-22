@@ -118,6 +118,10 @@ Each `fetch()` returns coffees in this shape:
   'roast_level' => 'light',
   'varietal' => 'Heirloom',
   'tasting_notes' => 'jasmine, bergamot',
+  // Optional. Platform tags / categories, verbatim. The importer mines them
+  // for flavour words when neither the description nor the title yields
+  // tasting notes (CoffeeFieldExtractor::extractTastingNotesFromTags).
+  'tags' => ['Single Origin', 'Chocolate', 'Stone Fruit'],
   'variants' => [
     // Exact keys RoasterImporter::syncVariants() reads. NOTE: it's `grams`
     // (not bag_weight_grams), `available` (not in_stock), and `source_id`

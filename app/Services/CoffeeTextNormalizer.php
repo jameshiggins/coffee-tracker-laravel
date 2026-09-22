@@ -208,21 +208,18 @@ final class CoffeeTextNormalizer
         return $s !== '' ? $s : null;
     }
 
-    /** Pull a "Tasting Notes: …" inline list out of a description, normalized. */
+    /**
+     * Pull a "Tasting Notes: …" inline list out of a description, normalized.
+     * Delegates to CoffeeFieldExtractor so there is exactly one set of
+     * label patterns and one list sanity gate — this used to carry its own
+     * looser regex with no gate, so "Notes: this lot was grown at…" prose
+     * landed in tasting_notes.
+     */
     public static function extractTastingNotes(?string $description): ?string
     {
         if (!$description) return null;
-        if (preg_match('/(?:tasting\s+notes?|flavou?r\s+notes?|notes?)\s*[:\-—]\s*([^\n.]{3,120})/i', $description, $m)) {
-            // Belt-and-braces: cleanDescription already sanitized $description,
-            // but the regex slice could still produce a partial multi-byte
-            // sequence at the boundaries.
-            $raw = trim(Shared::sanitizeUtf8($m[1]));
-            // Roasters delimit notes with bullets/pipes/slashes ("Golden
-            // berry • Jasmine • Pear"); normalize to the comma form the rest
-            // of the system expects.
-            return CoffeeFieldExtractor::normalizeNoteSeparators($raw);
-        }
-        return null;
+
+        return CoffeeFieldExtractor::extractTastingNotes(Shared::sanitizeUtf8($description));
     }
 
     /** Infer a country of origin from a coffee title via the gazetteer. */

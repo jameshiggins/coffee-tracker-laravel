@@ -382,8 +382,12 @@ class RoasterImporter
         // Run extractors against the RAW description first — cleanDescription
         // strips labelled blocks ("Tasting Notes:", "Process:", etc.) and
         // running the extractors on the cleaned output would miss everything.
+        // Description first (richest, labelled), then notes many roasters put
+        // in the title itself ("Guji – Blueberry, Jasmine"), then flavour
+        // tags — each gated so a miss returns null rather than a guess.
         $extractedNotes = CoffeeTextNormalizer::extractTastingNotes($rawDescription)
-            ?? CoffeeFieldExtractor::extractTastingNotes($rawDescription);
+            ?? CoffeeFieldExtractor::extractTastingNotesFromTitle($c['name'] ?? null)
+            ?? CoffeeFieldExtractor::extractTastingNotesFromTags(is_array($c['tags'] ?? null) ? $c['tags'] : []);
         $extractedVarietal = CoffeeFieldExtractor::extractVarietal($rawDescription)
             ?? CoffeeFieldExtractor::extractVarietal($c['name'] ?? '');
         $extractedProcess = CoffeeFieldExtractor::extractProcess($rawDescription)
