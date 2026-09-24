@@ -222,6 +222,11 @@ class CoffeeFieldExtractorTest extends TestCase
             'tastes like' => ['Tastes like: cherry pie, cola', 'cherry pie, cola'],
             'we get' => ['We get raspberry, dark chocolate and cedar in this one.', 'raspberry, dark chocolate, cedar'],
             'expect notes of' => ['Expect notes of lime, honey and black tea.', 'lime, honey, black tea'],
+            // The bare "notes" label used to win over "notes of" and leave
+            // the preposition in the capture ("of chocolate, …").
+            'tasting notes of' => ['Our pick this month. Tasting notes of chocolate, cherry and cola.', 'chocolate, cherry, cola'],
+            'notes include' => ['Notes include chocolate, cherry and cola.', 'chocolate, cherry, cola'],
+            'flavour notes are' => ['Flavour notes are chocolate and cherry.', 'chocolate, cherry'],
             'and split' => ['Notes: chocolate, caramel and citrus. Origin: Ethiopia', 'chocolate, caramel, citrus'],
             'ampersand split' => ['Tasting notes: cherry & cola', 'cherry, cola'],
             'en dash separator' => ['Tasting Notes – Blueberry, Jasmine, Honey', 'Blueberry, Jasmine, Honey'],

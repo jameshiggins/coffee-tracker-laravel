@@ -370,6 +370,9 @@ class CoffeeFieldExtractor
     private static function cleanNoteCandidate(string $raw): ?string
     {
         $raw = trim($raw);
+        // "Tasting notes of cherry" matches the shorter "notes" label first,
+        // leaving the preposition in the capture.
+        $raw = preg_replace('/^(?:of|include|including|are|is)\s+/iu', '', $raw) ?? $raw;
         $raw = preg_replace('/\s*' . self::NEXT_LABEL . '.*$/iu', '', $raw) ?? $raw;
         // Sentence-form captures ("we get cherry and cola in this one") run
         // on past the list; drop everything from a trailing preposition /

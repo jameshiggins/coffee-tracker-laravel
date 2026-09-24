@@ -328,6 +328,47 @@ class ShopifyScraperTest extends TestCase
         $this->assertSame('Golden berry • Jasmine • Pear', $pairs['Notes'] ?? null);
     }
 
+    /**
+     * Themes render the same metafield in several shapes. Every one of these
+     * must yield Notes => the flavour list; before this the parser matched
+     * only the exact Agro markup (label + colon inside <strong>, value in a
+     * <span>), so a theme with the colon outside the tag, an &nbsp;, a <b>,
+     * a rich-text metafield or a <dl> silently produced no notes.
+     *
+     * @dataProvider metafieldMarkupProvider
+     */
+    public function test_extract_metafield_pairs_tolerates_theme_markup_variants(string $html): void
+    {
+        $pairs = ShopifyScraper::extractMetafieldPairs($html);
+
+        $this->assertSame('Chocolate • Cherry', $pairs['Notes'] ?? null, $html);
+    }
+
+    public static function metafieldMarkupProvider(): array
+    {
+        return [
+            'colon outside strong' => ['<p><strong>Notes</strong>: <span>Chocolate &bull; Cherry</span></p>'],
+            'nbsp inside strong' => ['<p><strong>Notes:&nbsp;</strong><span>Chocolate &bull; Cherry</span></p>'],
+            'b instead of strong' => ['<p><b>Notes: </b>Chocolate &bull; Cherry</p>'],
+            'rich-text metafield, value in sibling p' => ['<div class="metafield-rich_text_field"><p><strong>Notes:</strong></p><p>Chocolate &bull; Cherry</p></div>'],
+            'nested p inside span' => ['<p><strong>Notes: </strong><span class="metafield-rich_text_field"><p>Chocolate &bull; Cherry</p></span></p>'],
+            'definition list' => ['<dl><dt>Notes</dt><dd>Chocolate &bull; Cherry</dd></dl>'],
+            'table row' => ['<table><tr><th>Notes</th><td>Chocolate &bull; Cherry</td></tr></table>'],
+            'value wrapped in inline em' => ['<p><strong>Notes:</strong> <em>Chocolate &bull; Cherry</em></p>'],
+        ];
+    }
+
+    public function test_extract_metafield_pairs_ignores_scripts_and_bold_prose(): void
+    {
+        $html = <<<'HTML'
+        <script type="application/ld+json">{"Notes":"leaked"}</script>
+        <p><strong>This coffee is really quite special and we love it</strong> so much.</p>
+        <p><strong>Roast:</strong> Light</p>
+        HTML;
+
+        $this->assertSame(['Roast' => 'Light'], ShopifyScraper::extractMetafieldPairs($html));
+    }
+
     public function test_extract_metafield_pairs_returns_empty_when_no_labelled_rows(): void
     {
         $html = '<div class="rte"><p>This coffee is part of our seasonal lineup.</p></div>';
