@@ -3,6 +3,7 @@
 namespace App\Services\Scraping;
 
 use App\Services\CoffeeFieldExtractor;
+use App\Models\AdminLog;
 use App\Services\Http\SafeHttp;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -156,6 +157,10 @@ class ShopifyScraper implements RoasterScraper
             $fetched++;
 
             $pairs = self::extractMetafieldPairs($resp->body());
+            AdminLog::debug('import.metafields', "Metafield enrichment for {$coffee['name']}", [
+                'product_url' => $productUrl,
+                'labels_found' => array_keys($pairs),
+            ]);
             if (empty($pairs)) continue;
 
             $coffees[$i] = self::applyMetafieldPairs($coffee, $pairs);
@@ -166,32 +171,92 @@ class ShopifyScraper implements RoasterScraper
 
     /**
      * Pull "Label: value" detail rows out of a rendered Shopify product page.
-     * Targets the common metafield rendering where the label is bolded and the
-     * value follows (optionally wrapped in a metafield span):
-     *   <strong>Roast: </strong><span class="metafield-…">Light</span>
-     * Returns a label => value map (first occurrence wins). Pure / no HTTP, so
-     * it's unit-tested directly against captured HTML.
+     *
+     * Metafields are rendered by the theme, and themes differ. The shapes
+     * seen in the wild, all of which must parse to the same pair:
+     *
+     *   <strong>Notes: </strong><span class="metafield-…">value</span>   (Agro)
+     *   <strong>Notes</strong>: value                (colon outside the tag)
+     *   <strong>Notes:&nbsp;</strong>value           (nbsp inside the tag)
+     *   <b>Notes:</b> value                          (<b> instead of <strong>)
+     *   <p><strong>Notes:</strong></p><p>value</p>   (rich-text metafield: label
+     *                                                 and value in sibling blocks)
+     *   <dt>Notes</dt><dd>value</dd>                 (definition-list themes)
+     *
+     * Strategy: normalise the HTML to a flat "Label: value" text stream —
+     * bold/label tags become "LABEL:" markers, block boundaries become
+     * newlines, everything else is stripped — then read label/value lines.
+     * A value is the text up to the next marker or block boundary. First
+     * occurrence of a label wins. Pure / no HTTP, unit-tested against
+     * captured HTML.
      *
      * @return array<string, string>
      */
     public static function extractMetafieldPairs(string $html): array
     {
+        // 1. Drop script/style bodies so JSON-LD or CSS can't fake a label.
+        $t = preg_replace('/<(script|style|noscript)\b[^>]*>.*?<\/\1>/is', ' ', $html) ?? $html;
+
+        // 2. Label tags → markers. The label text is kept; the closing tag
+        //    becomes a "\x01" sentinel that the line parser treats as the
+        //    colon, so "<strong>Notes</strong>: x" and "<strong>Notes:</strong> x"
+        //    read identically.
+        $t = preg_replace('/<(strong|b|dt|th)\b[^>]*>/i', "\n", $t) ?? $t;
+        $t = preg_replace('/<\/(strong|b|dt|th)\s*>/i', "\x01", $t) ?? $t;
+
+        // 3. Block boundaries → newlines; <br> too. Inline tags (span, em, a)
+        //    vanish so the value text stays contiguous.
+        $t = preg_replace('/<br\s*\/?>/i', "\n", $t) ?? $t;
+        $t = preg_replace('/<\/?(p|div|li|ul|ol|dd|td|tr|h[1-6]|section|article|table)\b[^>]*>/i', "\n", $t) ?? $t;
+        $t = strip_tags($t);
+        $t = html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $t = str_replace("\u{00A0}", ' ', $t);
+
         $pairs = [];
-        if (preg_match_all(
-            '/<strong>\s*([A-Za-z][A-Za-z \/]{1,24}?)\s*:\s*<\/strong>\s*(?:<span[^>]*>)?\s*([^<]{1,160})/u',
-            $html,
-            $matches,
-            PREG_SET_ORDER
-        )) {
-            foreach ($matches as $m) {
-                $label = trim($m[1]);
-                $value = trim(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5));
-                if ($label !== '' && $value !== '' && !isset($pairs[$label])) {
-                    $pairs[$label] = $value;
+        $lines = preg_split('/\n+/', $t) ?: [];
+        $pendingLabel = null;
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') continue;
+
+            // A label marker on this line?
+            if (str_contains($line, "\x01")) {
+                [$label, $rest] = explode("\x01", $line, 2);
+                $label = trim($label, " \t:\x{00A0}");
+                // Labels are short words like "Notes", "Roast level", "Process".
+                if ($label === '' || !preg_match('/^[A-Za-z][A-Za-z \/]{0,24}$/u', $label)) {
+                    $pendingLabel = null;
+                    continue;
                 }
+                $value = trim($rest, " \t:-–—");
+                if ($value !== '') {
+                    self::rememberPair($pairs, $label, $value);
+                    $pendingLabel = null;
+                } else {
+                    // "<p><strong>Notes:</strong></p><p>value</p>" — value is on
+                    // the next non-empty line.
+                    $pendingLabel = $label;
+                }
+                continue;
+            }
+
+            if ($pendingLabel !== null) {
+                self::rememberPair($pairs, $pendingLabel, $line);
+                $pendingLabel = null;
             }
         }
+
         return $pairs;
+    }
+
+    private static function rememberPair(array &$pairs, string $label, string $value): void
+    {
+        $value = trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+        if ($value === '' || mb_strlen($value) > 160) return;
+        if (!isset($pairs[$label])) {
+            $pairs[$label] = $value;
+        }
     }
 
     /**
