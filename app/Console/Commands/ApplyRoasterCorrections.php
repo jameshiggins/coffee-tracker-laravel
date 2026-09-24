@@ -281,6 +281,18 @@ class ApplyRoasterCorrections extends Command
             'latitude' => 53.5630794,
             'longitude' => -113.5275158,
         ],
+        // ── batch 3: 2026-09 additions ──
+        // Spilt Milk's shop is on 2nd St E at Mackenzie Ave in downtown
+        // Revelstoke. Coordinates are the downtown block, not a Nominatim
+        // building hit — precise enough for the map pin; the admin Geocode
+        // button refines them once the address is in the row.
+        [
+            'match' => ['Spilt Milk', 'Spilt Milk Coffee Roasters'],
+            'street_address' => '101 Second Street East',
+            'postal_code' => 'V0E 2S0',
+            'latitude' => 50.9982,
+            'longitude' => -118.1953,
+        ],
     ];
 
     /**
@@ -339,6 +351,12 @@ class ApplyRoasterCorrections extends Command
         ['name' => 'Vancouver Island Coffee',       'city' => 'Cowichan Valley', 'region' => 'British Columbia', 'website' => 'https://vi.coffee'],
         ['name' => 'Fix Coffee',                    'city' => 'Vancouver',       'region' => 'British Columbia', 'website' => 'https://www.fixcoffee.ca'],
         ['name' => 'Milano Coffee',                 'city' => 'Vancouver',       'region' => 'British Columbia', 'website' => 'https://milanocoffee.ca'],
+        // ── 2026-09 additions ──
+        // Revelstoke's Australian-style roaster + cafe (Shopify store at
+        // spilt-milk.ca; the /collections/coffee catalogue is the import
+        // source). Street address is in ADDRESS_FIXES so the pin lands on the
+        // shop, not the town centroid.
+        ['name' => 'Spilt Milk Coffee Roasters',    'city' => 'Revelstoke',      'region' => 'British Columbia', 'website' => 'https://spilt-milk.ca'],
     ];
 
     public function handle(): int

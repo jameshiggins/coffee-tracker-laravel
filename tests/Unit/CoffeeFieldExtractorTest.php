@@ -201,6 +201,131 @@ class CoffeeFieldExtractorTest extends TestCase
         $this->assertFalse(CoffeeFieldExtractor::looksLikeTastingNoteList('a smooth balanced cup for every morning of the week'));
     }
 
+    /* ------------ Tasting notes: wider label + heading coverage ------------ */
+
+    /** @dataProvider labelledNoteProvider */
+    public function test_extract_tasting_notes_recognizes_more_labels(string $text, string $expected): void
+    {
+        $this->assertSame($expected, CoffeeFieldExtractor::extractTastingNotes($text));
+    }
+
+    public static function labelledNoteProvider(): array
+    {
+        return [
+            'bare flavour label' => ['Flavour: milk chocolate, hazelnut, orange', 'milk chocolate, hazelnut, orange'],
+            'flavor (US) label' => ['Flavor - cherry, cola', 'cherry, cola'],
+            'taste label' => ['Taste: red apple / caramel / black tea', 'red apple, caramel, black tea'],
+            'flavour profile' => ['Flavour Profile: strawberry, cream, honey', 'strawberry, cream, honey'],
+            'cupping notes' => ['Cupping notes: plum, brown sugar', 'plum, brown sugar'],
+            'in the cup' => ['In the cup: blueberry, jasmine and honey', 'blueberry, jasmine, honey'],
+            'hints of' => ['A juicy lot with hints of peach, apricot and vanilla.', 'peach, apricot, vanilla'],
+            'tastes like' => ['Tastes like: cherry pie, cola', 'cherry pie, cola'],
+            'we get' => ['We get raspberry, dark chocolate and cedar in this one.', 'raspberry, dark chocolate, cedar'],
+            'expect notes of' => ['Expect notes of lime, honey and black tea.', 'lime, honey, black tea'],
+            'and split' => ['Notes: chocolate, caramel and citrus. Origin: Ethiopia', 'chocolate, caramel, citrus'],
+            'ampersand split' => ['Tasting notes: cherry & cola', 'cherry, cola'],
+            'en dash separator' => ['Tasting Notes – Blueberry, Jasmine, Honey', 'Blueberry, Jasmine, Honey'],
+        ];
+    }
+
+    public function test_extract_tasting_notes_reads_headings_flattened_without_punctuation(): void
+    {
+        // <h4>Tasting Notes</h4><p>Cherry, Cola, Brown Sugar</p><h4>Roast</h4><p>Light</p>
+        // becomes this once block tags are replaced with spaces.
+        $this->assertSame(
+            'Cherry, Cola, Brown Sugar',
+            CoffeeFieldExtractor::extractTastingNotes('Tasting Notes Cherry, Cola, Brown Sugar Roast Light Process Washed Origin Ethiopia')
+        );
+    }
+
+    public function test_extract_tasting_notes_cuts_at_the_next_spec_label(): void
+    {
+        // Previously the whole capture ("… Roast Level Medium") tripped the
+        // farming-language gate and the notes were lost.
+        $this->assertSame(
+            'Milk chocolate, Hazelnut',
+            CoffeeFieldExtractor::extractTastingNotes('Notes: Milk chocolate, Hazelnut Roast Level: Medium Process: Washed')
+        );
+    }
+
+    public function test_extract_tasting_notes_heading_without_list_is_not_trusted(): void
+    {
+        // A prose sentence that happens to start with a label word must not
+        // become tasting notes just because the heading regex has no colon.
+        $this->assertNull(CoffeeFieldExtractor::extractTastingNotes('Taste this coffee with an open mind on a quiet morning'));
+        $this->assertNull(CoffeeFieldExtractor::extractTastingNotes('Notes This lot was grown by the Kebede family at 2100 masl'));
+    }
+
+    public function test_extract_tasting_notes_ignores_footnotes_and_keynotes(): void
+    {
+        $this->assertNull(CoffeeFieldExtractor::extractTastingNotes('Footnotes: see our shipping policy'));
+    }
+
+    public function test_extract_tasting_notes_skips_a_rejected_first_match_for_a_later_good_one(): void
+    {
+        // "Notes:" prose first, then a real list further down the body.
+        $this->assertSame(
+            'plum, cocoa',
+            CoffeeFieldExtractor::extractTastingNotes('Notes: grown on the family farm at high altitude. Tasting notes: plum, cocoa')
+        );
+    }
+
+    /* ------------ Tasting notes from the title ------------ */
+
+    /** @dataProvider titleNoteProvider */
+    public function test_extract_tasting_notes_from_title(string $title, ?string $expected): void
+    {
+        $this->assertSame($expected, CoffeeFieldExtractor::extractTastingNotesFromTitle($title));
+    }
+
+    public static function titleNoteProvider(): array
+    {
+        return [
+            'en dash list' => ['Ethiopia Guji – Blueberry, Jasmine, Honey', 'Blueberry, Jasmine, Honey'],
+            'pipe + bullets' => ['Colombia Huila | Caramel · Red Apple · Cola', 'Caramel, Red Apple, Cola'],
+            'hyphen with and' => ['Kenya Kiambu - Blackcurrant and Grapefruit', 'Blackcurrant, Grapefruit'],
+            'last segment wins' => ['Brazil - Natural - Milk Chocolate, Peanut', 'Milk Chocolate, Peanut'],
+            'origins are not flavours' => ['House Blend - Brazil, Colombia', null],
+            'sizes are not flavours' => ['Kenya AA - 250g, 1kg', null],
+            'no separator in segment' => ['Ethiopia Guji - Washed', null],
+            'no title separator' => ['Blueberry Jasmine Honey', null],
+            'process words rejected by gate' => ['Peru - Washed, Natural', null],
+            'null' => ['', null],
+        ];
+    }
+
+    /* ------------ Tasting notes from tags ------------ */
+
+    public function test_extract_tasting_notes_from_tags_keeps_only_flavour_words(): void
+    {
+        $this->assertSame(
+            'Chocolate, Stone Fruit, Floral',
+            CoffeeFieldExtractor::extractTastingNotesFromTags(['Single Origin', 'Ethiopia', 'Chocolate', 'Light Roast', 'Stone Fruit', 'Floral', 'coffee'])
+        );
+    }
+
+    public function test_extract_tasting_notes_from_tags_strips_label_prefixes_and_dedupes(): void
+    {
+        $this->assertSame(
+            'Cherry, Cola',
+            CoffeeFieldExtractor::extractTastingNotesFromTags(['notes:Cherry', 'Flavour - Cola', 'cherry'])
+        );
+    }
+
+    public function test_extract_tasting_notes_from_tags_requires_two_flavour_words(): void
+    {
+        $this->assertNull(CoffeeFieldExtractor::extractTastingNotesFromTags(['Single Origin', 'Sweet']));
+        $this->assertNull(CoffeeFieldExtractor::extractTastingNotesFromTags([]));
+    }
+
+    public function test_has_known_flavour_matches_on_head_noun(): void
+    {
+        $this->assertTrue(CoffeeFieldExtractor::hasKnownFlavour('candied orange, something'));
+        $this->assertTrue(CoffeeFieldExtractor::hasKnownFlavour('Black Tea'));
+        $this->assertFalse(CoffeeFieldExtractor::hasKnownFlavour('Brazil, Colombia'));
+        $this->assertFalse(CoffeeFieldExtractor::hasKnownFlavour(''));
+    }
+
     public function test_normalize_note_separators(): void
     {
         $this->assertSame('Golden berry, Jasmine, Pear', CoffeeFieldExtractor::normalizeNoteSeparators('Golden berry • Jasmine • Pear'));

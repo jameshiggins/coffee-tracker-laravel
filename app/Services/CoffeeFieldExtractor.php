@@ -250,32 +250,203 @@ class CoffeeFieldExtractor
     }
 
     /**
+     * Labels roasters put in front of a flavour list. Longest / most
+     * specific first so "Tasting notes:" wins over the bare "Notes:".
+     * Bare "Profile" is deliberately absent — "Roast profile: medium" is
+     * the common collision; it only counts with a flavour qualifier.
+     */
+    private const NOTE_LABELS = 'tasting\s+notes?|flavou?r\s+notes?|cup(?:ping)?\s+notes?|aroma\s+(?:and|&)\s+flavou?r|'
+        . 'flavou?r\s+profile|taste\s+profile|tasting\s+profile|cup\s+profile|cup\s+character|'
+        . 'in\s+the\s+cup|notes\s+of|hints\s+of|flavou?rs?\s+of|tastes?\s+like|'
+        . 'flavou?rs?|taste|notes?';
+
+    /**
+     * The spec-sheet labels that typically follow a notes block on a
+     * heading-styled product page ("Tasting Notes Cherry, Cola Roast Light
+     * Process Washed"). A capture is cut at the first one so the flavour
+     * list survives instead of being rejected wholesale for containing
+     * "roast".
+     */
+    private const NEXT_LABEL = '\b(?:roast(?:\s+(?:level|profile|degree))?|process(?:ing)?(?:\s+method)?|origin|region|country|'
+        . 'varietal|variety|varieties|cultivar|altitude|elevation|producer|farm|harvest|crop|importer|'
+        . 'weight|size|brew(?:ing)?|grind|price|ingredients?|net\s+wt|packaging|shipping)\b';
+
+    /**
      * Tasting notes — pulled from a labelled section in the description.
-     * Looks for a "Notes:" / "Tasting Notes:" / "Flavour Notes:" header,
-     * then captures the next ~120 chars up to a sentence break or pipe.
-     * Returns the comma-separated list verbatim (cleaned).
+     * Handles the shapes roaster copy actually takes:
+     *   - "Tasting Notes: cherry, cola, brown sugar"
+     *   - "Flavour: cherry / cola"  ·  "Notes of cherry and cola"
+     *   - heading-styled rows with no punctuation once block tags are
+     *     flattened: "Tasting Notes Cherry, Cola, Brown Sugar Roast Light"
+     *   - "We taste cherry, cola and brown sugar"
+     * The list is validated by looksLikeTastingNoteList() and normalized to
+     * a comma-separated string. Returns null rather than guessing.
      */
     public static function extractTastingNotes(?string $text): ?string
     {
         if (!$text) return null;
-        // Order matters: longer/more-specific labels first so "Tasting
-        // notes:" wins over the bare "Notes:" alternative.
+
+        $labels = self::NOTE_LABELS;
         $patterns = [
-            '/(?:tasting\s+notes?|flavou?r\s+notes?|cup\s+notes?|notes?\s+of)\s*[:\-—]\s*([^\n.|]{3,120})/i',
-            '/(?:^|[\s.])notes?\s*[:\-—]\s*([^\n.|]{3,120})/i',
-            '/we\s+(?:taste|love|notice)\s+([^\n.|]{3,80})/i',
+            // Explicit separator after the label: "Notes: …", "Flavour — …".
+            // The label must sit at a word boundary so "footnotes:" and
+            // "keynotes:" don't fire.
+            '/(?<![\p{L}])(?:' . $labels . ')\s*[:\-—–]\s*([^\n.|]{3,140})/iu',
+            // Heading with no punctuation. Only trusted when what follows
+            // already reads as a list (a separator or "and" inside it), so a
+            // prose sentence that merely starts with "Taste" is skipped.
+            '/(?<![\p{L}])(?:' . $labels . ')\s+((?=[^\n.|]{0,60}(?:[,•·\/]|\s(?:and|&)\s))[^\n.|]{3,140})/iu',
+            '/\bwe\s+(?:taste|get|find|love|notice)\s+([^\n.|]{3,100})/iu',
+            '/\b(?:expect|look\s+for)\s+(?:notes\s+of\s+|flavou?rs\s+of\s+|hints\s+of\s+)?([^\n.|]{3,100})/iu',
         ];
+
         foreach ($patterns as $p) {
-            if (preg_match($p, $text, $m)) {
-                $raw = trim($m[1]);
-                $raw = preg_replace('/\b(?:and\s+(?:a|the)\s+|with\s+)/i', '', $raw);
-                if (self::looksLikeTastingNoteList($raw)) {
-                    return self::normalizeNoteSeparators($raw);
-                }
+            if (!preg_match_all($p, $text, $all, PREG_SET_ORDER)) continue;
+            foreach ($all as $m) {
+                $notes = self::cleanNoteCandidate($m[1]);
+                if ($notes !== null) return $notes;
             }
         }
+
         return null;
     }
+
+    /**
+     * Notes embedded in the product title, which is where a lot of roasters
+     * put them: "Ethiopia Guji – Blueberry, Jasmine, Honey" or
+     * "Colombia Huila | Caramel · Red Apple". Only the segment after the
+     * LAST separator is considered, it must read as a list, and at least one
+     * term must be a known flavour word — so "House Blend - Brazil, Colombia"
+     * (origins) and "Kenya AA - 250g, 1kg" (sizes) stay out.
+     */
+    public static function extractTastingNotesFromTitle(?string $title): ?string
+    {
+        if (!$title) return null;
+
+        $parts = preg_split('/\s+[\-–—|:]\s+|\s*\|\s*/u', $title);
+        if ($parts === false || count($parts) < 2) return null;
+
+        $segment = trim((string) end($parts));
+        if ($segment === '' || !preg_match('/[,•·\/]|\s(?:and|&)\s/u', $segment)) return null;
+
+        $notes = self::cleanNoteCandidate($segment);
+        if ($notes === null || !self::hasKnownFlavour($notes)) return null;
+
+        return $notes;
+    }
+
+    /**
+     * Notes from platform tags. Some shops tag every bean with its flavour
+     * words ("Chocolate", "Stone Fruit", "Floral") and nothing else. Tags
+     * are unordered and shared with taxonomy ("Single Origin", "Ethiopia",
+     * "Light Roast"), so only known flavour vocabulary is kept, and at least
+     * two matches are required — a lone "Sweet" tag says nothing.
+     *
+     * @param  array<int, string>  $tags
+     */
+    public static function extractTastingNotesFromTags(array $tags): ?string
+    {
+        $found = [];
+        foreach ($tags as $tag) {
+            $tag = trim((string) $tag);
+            // "notes:chocolate" / "Flavour - Berry" style prefixed tags.
+            $tag = preg_replace('/^(?:tasting\s+notes?|flavou?r\s+notes?|flavou?rs?|notes?|taste)\s*[:\-_]\s*/iu', '', $tag);
+            if ($tag === '' || str_word_count($tag) > 3) continue;
+            if (self::hasKnownFlavour($tag)) {
+                $found[mb_strtolower($tag)] ??= $tag;
+            }
+        }
+
+        if (count($found) < 2) return null;
+
+        return implode(', ', array_values($found));
+    }
+
+    /**
+     * Shared clean-up for a raw captured note list: cut at the next spec
+     * label, drop connective words, split "and"/"&" into list separators,
+     * then apply the list sanity gate and separator normalization.
+     */
+    private static function cleanNoteCandidate(string $raw): ?string
+    {
+        $raw = trim($raw);
+        $raw = preg_replace('/\s*' . self::NEXT_LABEL . '.*$/iu', '', $raw) ?? $raw;
+        // Sentence-form captures ("we get cherry and cola in this one") run
+        // on past the list; drop everything from a trailing preposition /
+        // pronoun clause onward.
+        $raw = preg_replace('/\s+(?:in|on|from|for|that|which|this|these|when|as|to|throughout|across)\s+.*$/iu', '', $raw) ?? $raw;
+        $raw = preg_replace('/\b(?:and\s+(?:a|the)\s+|with\s+(?:a|an|the)?\s*|a\s+(?:hint|touch|note)\s+of\s+)/iu', '', $raw) ?? $raw;
+        // "cherry, cola and brown sugar" → three chips, not two.
+        $raw = preg_replace('/\s*,?\s+(?:and|&|\+)\s+/iu', ', ', $raw) ?? $raw;
+        $raw = trim($raw, " \t,.;:-–—");
+
+        if ($raw === '' || !self::looksLikeTastingNoteList($raw)) return null;
+
+        return self::normalizeNoteSeparators($raw);
+    }
+
+    /** True when any term in the list is (or ends with) a known flavour word. */
+    public static function hasKnownFlavour(string $list): bool
+    {
+        foreach (preg_split('/\s*[,•·|\/]\s*/u', mb_strtolower($list)) ?: [] as $term) {
+            $term = trim($term);
+            if ($term === '') continue;
+            if (isset(self::FLAVOUR_LEXICON[$term])) return true;
+            // "milk chocolate", "candied orange", "black tea" — match on the
+            // head noun so the lexicon doesn't need every adjective combo.
+            $words = preg_split('/\s+/', $term) ?: [];
+            $last = end($words);
+            if ($last !== false && isset(self::FLAVOUR_LEXICON[$last])) return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Flavour vocabulary (SCA flavour wheel + the descriptors Canadian
+     * roasters actually print). Keys only; values are unused. Kept to nouns
+     * and well-known descriptors — no origins, processes or roast words, so
+     * a lexicon hit is a strong "this is a flavour list" signal.
+     */
+    private const FLAVOUR_LEXICON = [
+        // fruit
+        'berry' => 1, 'berries' => 1, 'blueberry' => 1, 'strawberry' => 1, 'raspberry' => 1, 'blackberry' => 1,
+        'cranberry' => 1, 'gooseberry' => 1, 'currant' => 1, 'blackcurrant' => 1, 'cherry' => 1, 'cherries' => 1,
+        'plum' => 1, 'peach' => 1, 'apricot' => 1, 'nectarine' => 1, 'apple' => 1, 'pear' => 1, 'grape' => 1,
+        'grapes' => 1, 'raisin' => 1, 'prune' => 1, 'fig' => 1, 'date' => 1, 'dates' => 1, 'citrus' => 1,
+        'lemon' => 1, 'lime' => 1, 'orange' => 1, 'grapefruit' => 1, 'bergamot' => 1, 'mandarin' => 1,
+        'tangerine' => 1, 'clementine' => 1, 'yuzu' => 1, 'mango' => 1, 'pineapple' => 1, 'papaya' => 1,
+        'passionfruit' => 1, 'passion fruit' => 1, 'lychee' => 1, 'guava' => 1, 'melon' => 1, 'watermelon' => 1,
+        'cantaloupe' => 1, 'banana' => 1, 'kiwi' => 1, 'pomegranate' => 1, 'tamarind' => 1, 'jackfruit' => 1,
+        'coconut' => 1, 'tropical' => 1, 'stone fruit' => 1, 'fruit' => 1, 'fruity' => 1, 'rhubarb' => 1,
+        'tomato' => 1, 'jam' => 1, 'jammy' => 1, 'marmalade' => 1, 'compote' => 1, 'lemonade' => 1, 'juicy' => 1,
+        // sweet
+        'caramel' => 1, 'toffee' => 1, 'butterscotch' => 1, 'honey' => 1, 'molasses' => 1, 'sugar' => 1,
+        'maple' => 1, 'vanilla' => 1, 'marshmallow' => 1, 'nougat' => 1, 'praline' => 1, 'fudge' => 1,
+        'candy' => 1, 'candied' => 1, 'syrup' => 1, 'syrupy' => 1, 'treacle' => 1, 'sweet' => 1, 'sweetness' => 1,
+        'brownie' => 1, 'cake' => 1, 'pastry' => 1, 'pie' => 1, 'cookie' => 1, 'biscuit' => 1, 'graham' => 1,
+        'shortbread' => 1, 'crumble' => 1, 'custard' => 1, 'sherbet' => 1, 'cola' => 1, 'gummy' => 1,
+        // chocolate / nut
+        'chocolate' => 1, 'chocolatey' => 1, 'cocoa' => 1, 'cacao' => 1, 'nib' => 1, 'nibs' => 1,
+        'hazelnut' => 1, 'almond' => 1, 'walnut' => 1, 'peanut' => 1, 'pecan' => 1, 'cashew' => 1,
+        'pistachio' => 1, 'macadamia' => 1, 'nut' => 1, 'nuts' => 1, 'nutty' => 1, 'malt' => 1, 'malty' => 1,
+        'marzipan' => 1, 'mocha' => 1,
+        // floral / herbal / tea
+        'floral' => 1, 'flower' => 1, 'flowers' => 1, 'jasmine' => 1, 'rose' => 1, 'hibiscus' => 1,
+        'lavender' => 1, 'chamomile' => 1, 'elderflower' => 1, 'blossom' => 1, 'honeysuckle' => 1,
+        'tea' => 1, 'herbal' => 1, 'mint' => 1, 'eucalyptus' => 1, 'sage' => 1, 'thyme' => 1, 'lemongrass' => 1,
+        // spice / roasted / other
+        'cinnamon' => 1, 'clove' => 1, 'nutmeg' => 1, 'cardamom' => 1, 'ginger' => 1, 'anise' => 1,
+        'licorice' => 1, 'liquorice' => 1, 'pepper' => 1, 'spice' => 1, 'spices' => 1, 'spicy' => 1,
+        'tobacco' => 1, 'cedar' => 1, 'sandalwood' => 1, 'wood' => 1, 'woody' => 1, 'smoky' => 1, 'smoke' => 1,
+        'toast' => 1, 'toasty' => 1, 'cereal' => 1, 'grain' => 1, 'oat' => 1, 'oats' => 1, 'granola' => 1,
+        'bread' => 1, 'wine' => 1, 'winey' => 1, 'boozy' => 1, 'rum' => 1, 'whisky' => 1, 'whiskey' => 1,
+        'brandy' => 1, 'port' => 1, 'cream' => 1, 'creamy' => 1, 'butter' => 1, 'buttery' => 1, 'milk' => 1,
+        'yogurt' => 1, 'umami' => 1, 'savoury' => 1, 'savory' => 1, 'earthy' => 1, 'bright' => 1, 'tart' => 1,
+        'crisp' => 1, 'clean' => 1, 'smooth' => 1, 'rich' => 1, 'bold' => 1, 'balanced' => 1, 'silky' => 1,
+        'velvety' => 1, 'round' => 1, 'mellow' => 1, 'zesty' => 1, 'tangy' => 1, 'lively' => 1, 'delicate' => 1,
+        'complex' => 1, 'full-bodied' => 1, 'full bodied' => 1,
+    ];
 
     /**
      * Sanity-check an extracted note list. A real tasting-note list looks

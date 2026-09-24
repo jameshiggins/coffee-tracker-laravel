@@ -51,6 +51,13 @@ return [
     // Leave the key unset to skip Google Places in the cascade; see
     // app/Services/Scraping/Address/GooglePlacesAddressResolver.php for the
     // exact provisioning steps.
+    // Nominatim's usage policy wants a contact address in the User-Agent and
+    // the `email` query parameter so OSM can reach the operator before blocking
+    // the IP. Falls back to the ops mailbox; leave every one unset to send none.
+    'nominatim' => [
+        'contact_email' => env('NOMINATIM_CONTACT_EMAIL', env('OPS_EMAIL', env('MAIL_FROM_ADDRESS'))),
+    ],
+
     'google_places' => [
         'key' => env('GOOGLE_PLACES_API_KEY'),
     ],

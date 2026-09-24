@@ -36,6 +36,42 @@ class RoasterImportTest extends TestCase
         ];
     }
 
+    public function test_import_recovers_tasting_notes_from_title_and_tags_when_body_has_none(): void
+    {
+        Http::fake([
+            'roasterexample.com/products.json*' => Http::response(['products' => [
+                [
+                    // Notes live only in the title.
+                    'id' => 1, 'title' => 'Ethiopia Guji – Blueberry, Jasmine, Honey', 'product_type' => 'Coffee',
+                    'tags' => ['Single Origin'], 'body_html' => '<p>A lovely washed lot from Guji.</p>',
+                    'handle' => 'guji',
+                    'variants' => [['id' => 11, 'title' => '250g', 'price' => '24.00', 'available' => true]],
+                ],
+                [
+                    // Notes live only in the tags.
+                    'id' => 2, 'title' => 'Colombia Huila', 'product_type' => 'Coffee',
+                    'tags' => ['Single Origin', 'Colombia', 'Chocolate', 'Red Apple', 'Caramel'], 'body_html' => '<p>Our classic Colombian.</p>',
+                    'handle' => 'huila',
+                    'variants' => [['id' => 21, 'title' => '340g', 'price' => '20.00', 'available' => true]],
+                ],
+                [
+                    // Heading-styled body with no punctuation after the label.
+                    'id' => 3, 'title' => 'Kenya Kiambu', 'product_type' => 'Coffee',
+                    'tags' => [], 'body_html' => '<h4>Tasting Notes</h4><p>Blackcurrant, Grapefruit, Brown Sugar</p><h4>Roast</h4><p>Light</p>',
+                    'handle' => 'kiambu',
+                    'variants' => [['id' => 31, 'title' => '250g', 'price' => '26.00', 'available' => true]],
+                ],
+            ]], 200),
+        ]);
+
+        $roaster = (new RoasterImporter())->import('https://roasterexample.com', name: 'Roaster Example', city: 'Vancouver');
+        $notes = $roaster->coffees()->pluck('tasting_notes', 'source_id');
+
+        $this->assertSame('Blueberry, Jasmine, Honey', $notes['1'], 'title-embedded notes');
+        $this->assertSame('Chocolate, Red Apple, Caramel', $notes['2'], 'flavour tags, taxonomy tags dropped');
+        $this->assertSame('Blackcurrant, Grapefruit, Brown Sugar', $notes['3'], 'heading without a colon, cut before Roast');
+    }
+
     public function test_import_creates_roaster_with_scraped_coffees_and_variants(): void
     {
         Http::fake([

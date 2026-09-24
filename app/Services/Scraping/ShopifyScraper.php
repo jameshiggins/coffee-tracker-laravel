@@ -349,6 +349,7 @@ class ShopifyScraper implements RoasterScraper
                 'image_url' => $imageUrl,
                 'product_url' => $productUrl,
                 'is_blend' => Shared::isBlend($title, $productType, $tags),
+                'tags' => array_values(array_filter(array_map('trim', $tags))),
                 'variants' => $variants,
             ];
         }

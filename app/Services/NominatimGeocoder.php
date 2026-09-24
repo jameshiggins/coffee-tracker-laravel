@@ -27,6 +27,74 @@ class NominatimGeocoder
 
     private static ?float $lastRequestAt = null;
 
+    /**
+     * Why the last call returned null when it was NOT a genuine no-match:
+     * an HTTP error status (403 = usage-policy block, 429 = rate limit,
+     * 5xx) or a transport exception. Null after a successful call or a
+     * real "no results" response. Nominatim blocks are indistinguishable
+     * from "no match" without this — the admin Geocode button used to
+     * report both identically.
+     */
+    private ?string $lastError = null;
+
+    public function lastError(): ?string
+    {
+        return $this->lastError;
+    }
+
+    /**
+     * Nominatim's usage policy requires a User-Agent that identifies the
+     * application AND gives a way to reach the operator; stock library UAs
+     * and anonymous ones are refused (403), and datacenter IPs like Fly.io
+     * are policed harder than residential ones. The contact email also goes
+     * in the `email` query parameter, which the policy asks for so they can
+     * reach you before blocking rather than after.
+     */
+    private function identity(): array
+    {
+        $appUrl = rtrim((string) config('app.url'), '/');
+        $email = trim((string) config('services.nominatim.contact_email'));
+        $contact = array_filter([$appUrl !== '' ? '+' . $appUrl : null, $email !== '' ? $email : null]);
+
+        return [
+            'user_agent' => 'RoastMap/1.0 (' . implode('; ', $contact ?: ['admin geocoder']) . ')',
+            'email' => $email !== '' ? $email : null,
+        ];
+    }
+
+    private function request(array $query): ?array
+    {
+        $this->lastError = null;
+        $identity = $this->identity();
+        if ($identity['email']) {
+            $query['email'] = $identity['email'];
+        }
+
+        try {
+            $this->throttle();
+            $response = SafeHttp::client(10)
+                ->withHeaders([
+                    'User-Agent' => $identity['user_agent'],
+                    'Accept-Language' => 'en',
+                ])
+                ->acceptJson()
+                ->get(self::BASE, $query);
+        } catch (\Throwable $e) {
+            $this->lastError = 'Nominatim request failed: ' . $e->getMessage();
+            return null;
+        }
+
+        if (!$response->ok()) {
+            $body = trim(preg_replace('/\s+/', ' ', strip_tags($response->body())));
+            $this->lastError = 'Nominatim returned HTTP ' . $response->status()
+                . ($body !== '' ? ': ' . mb_substr($body, 0, 200) : '');
+            return null;
+        }
+
+        $hits = $response->json();
+        return is_array($hits) ? $hits : [];
+    }
+
     /** Block until at least MIN_INTERVAL_SECONDS has passed since the last call. */
     private function throttle(): void
     {
@@ -51,31 +119,19 @@ class NominatimGeocoder
         $query = trim(implode(', ', array_filter([$streetAddress, $city, $region, $country])));
         if ($query === '') return null;
 
-        try {
-            $this->throttle();
-            $response = SafeHttp::client(10)
-                ->withHeaders([
-                    'User-Agent' => 'SpecialtyCoffeeRoasters/1.0 admin geocoder (contact: directory)',
-                    'Accept-Language' => 'en',
-                ])
-                ->acceptJson()
-                ->get(self::BASE, [
-                    'q' => $query,
-                    'format' => 'json',
-                    'limit' => 1,
-                    'addressdetails' => 0,
-                ]);
-            if (!$response->ok()) return null;
-            $hits = $response->json();
-            if (!is_array($hits) || empty($hits[0])) return null;
-            return [
-                'lat' => (float) $hits[0]['lat'],
-                'lng' => (float) $hits[0]['lon'],
-                'display_name' => $hits[0]['display_name'] ?? null,
-            ];
-        } catch (\Throwable) {
-            return null;
-        }
+        $hits = $this->request([
+            'q' => $query,
+            'format' => 'json',
+            'limit' => 1,
+            'addressdetails' => 0,
+        ]);
+        if ($hits === null || empty($hits[0])) return null;
+
+        return [
+            'lat' => (float) $hits[0]['lat'],
+            'lng' => (float) $hits[0]['lon'],
+            'display_name' => $hits[0]['display_name'] ?? null,
+        ];
     }
 
     /**
@@ -93,44 +149,32 @@ class NominatimGeocoder
         $query = trim(implode(', ', array_filter([$name, $city, $country])));
         if ($query === '') return null;
 
-        try {
-            $this->throttle();
-            $response = SafeHttp::client(10)
-                ->withHeaders([
-                    'User-Agent' => 'SpecialtyCoffeeRoasters/1.0 admin geocoder (contact: directory)',
-                    'Accept-Language' => 'en',
-                ])
-                ->acceptJson()
-                ->get(self::BASE, [
-                    'q' => $query,
-                    'format' => 'json',
-                    'limit' => 1,
-                    'addressdetails' => 1,
-                    'countrycodes' => 'ca',
-                ]);
-            if (!$response->ok()) return null;
-            $hits = $response->json();
-            if (!is_array($hits) || empty($hits[0])) return null;
-            $hit = $hits[0];
-            $addr = $hit['address'] ?? [];
-            $houseNumber = $addr['house_number'] ?? null;
-            $road = $addr['road'] ?? null;
-            // Without a house number AND road we don't have a precise pin —
-            // bail out and let the cascade fall through to Google Places.
-            if (!$houseNumber || !$road) return null;
-            $street = trim("$houseNumber $road");
+        $hits = $this->request([
+            'q' => $query,
+            'format' => 'json',
+            'limit' => 1,
+            'addressdetails' => 1,
+            'countrycodes' => 'ca',
+        ]);
+        if ($hits === null || empty($hits[0])) return null;
 
-            return new ScrapedAddress(
-                source: 'osm',
-                street_address: $street,
-                postal_code: $addr['postcode'] ?? null,
-                city: $addr['city'] ?? $addr['town'] ?? $addr['village'] ?? null,
-                region: $addr['state'] ?? null,
-                latitude: isset($hit['lat']) ? (float) $hit['lat'] : null,
-                longitude: isset($hit['lon']) ? (float) $hit['lon'] : null,
-            );
-        } catch (\Throwable) {
-            return null;
-        }
+        $hit = $hits[0];
+        $addr = $hit['address'] ?? [];
+        $houseNumber = $addr['house_number'] ?? null;
+        $road = $addr['road'] ?? null;
+        // Without a house number AND road we don't have a precise pin —
+        // bail out and let the cascade fall through to Google Places.
+        if (!$houseNumber || !$road) return null;
+        $street = trim("$houseNumber $road");
+
+        return new ScrapedAddress(
+            source: 'osm',
+            street_address: $street,
+            postal_code: $addr['postcode'] ?? null,
+            city: $addr['city'] ?? $addr['town'] ?? $addr['village'] ?? null,
+            region: $addr['state'] ?? null,
+            latitude: isset($hit['lat']) ? (float) $hit['lat'] : null,
+            longitude: isset($hit['lon']) ? (float) $hit['lon'] : null,
+        );
     }
 }

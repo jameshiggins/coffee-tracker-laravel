@@ -175,15 +175,19 @@ class RoasterController extends Controller
             return back()->withErrors(['street_address' => 'No street address to geocode. Edit the roaster first.']);
         }
 
-        $hit = (new NominatimGeocoder())->geocode(
+        $geocoder = new NominatimGeocoder();
+        $hit = $geocoder->geocode(
             $roaster->street_address, $roaster->city, $roaster->region, 'Canada'
         );
         if (! $hit) {
-            AdminLog::warning('admin.roaster.geocode_failed', "Geocode found no match for {$roaster->name}", [
-                'roaster_id' => $roaster->id, 'street_address' => $roaster->street_address,
+            // A Nominatim block (403), rate limit (429) or outage must not
+            // masquerade as a bad address — the operator's fix is different.
+            $reason = $geocoder->lastError() ?? 'no match for that address';
+            AdminLog::warning('admin.roaster.geocode_failed', "Geocode failed for {$roaster->name}: {$reason}", [
+                'roaster_id' => $roaster->id, 'street_address' => $roaster->street_address, 'reason' => $reason,
             ]);
 
-            return back()->with('success', "Geocode failed for {$roaster->name}: no match.");
+            return back()->with('success', "Geocode failed for {$roaster->name}: {$reason}");
         }
 
         // Stamp address_source='manual' so the monthly address sweep treats
