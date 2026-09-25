@@ -178,6 +178,23 @@ class WeeklyDataQualityDigestTest extends TestCase
         Mail::assertQueued(WeeklyDataQualityDigest::class, fn ($mail) => $mail->hasTo('ops@roastmap.ca'));
     }
 
+    public function test_defaults_recipient_to_the_ops_address(): void
+    {
+        // Regression: the scheduled run passes no --email. The digest must go to
+        // the ops recipient (OPS_EMAIL), not the sender identity — it went to the
+        // from-mailbox for months and the operator never received one.
+        Mail::fake();
+        config([
+            'mail.ops_address' => 'me@personal.example',
+            'mail.from.address' => 'sender@verified.example',
+        ]);
+        $this->roaster('solo', 'Solo Coffee');
+
+        $this->artisan('reports:weekly-digest')->assertExitCode(0);
+
+        Mail::assertQueued(WeeklyDataQualityDigest::class, fn ($mail) => $mail->hasTo('me@personal.example'));
+    }
+
     public function test_dry_run_prints_without_sending(): void
     {
         Mail::fake();
