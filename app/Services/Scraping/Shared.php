@@ -20,6 +20,11 @@ final class Shared
      */
     public static function parseGrams(string $title): ?int
     {
+        // Fluid ounces are a drink size, never a bag weight ("12 fl oz cold
+        // brew"). Bail before the oz patterns below turn a cup into 340 g.
+        if (preg_match('/\bfl\.?\s*oz\b|\bfluid\s+ounces?\b/i', $title)) {
+            return null;
+        }
         // Fractions FIRST: "3/4 lb", "1/2 lb", "1 1/4 lb". Without this
         // guard, the bare-integer regexes below would match the trailing
         // denominator ("4lb" inside "3/4 lb" — wrong by ~5x).
@@ -317,6 +322,77 @@ final class Shared
     }
 
     /**
+     * Drink nouns that, standing as the product itself, mean a café menu item
+     * rather than a bag of beans. "espresso" and "drip" are deliberately absent:
+     * both are common names for bags ("Espresso", a blend called "Drip").
+     */
+    private const DRINK_NOUNS = 'lattes?|mochas?|cappucc?inos?|steamers?|americanos?|cortados?|macchiatos?'
+        . '|flat\s+whites?|cold\s+brews?|affogatos?|frapp[eé]s?|london\s+fogs?|hot\s+chocolates?'
+        . '|chai\s+lattes?|matcha\s+lattes?|iced\s+coffees?|nitro';
+
+    /**
+     * Words allowed in front of a drink noun that keep it a drink ("Iced Oat
+     * Vanilla Latte", "Blueberry Pancake Latte", "Large Mocha"). A leading word
+     * outside this list — an origin, a farm — means the title is a bean name
+     * that happens to end in a drink word ("Ethiopia Mocha") and it is kept.
+     */
+    private const DRINK_MODIFIERS = 'iced|hot|large|small|medium|regular|grande|tall|short|decaf|oat|almond|soy'
+        . '|coconut|dairy|vanilla|caramel|maple|spiced|pumpkin|hazelnut|lavender|honey|cinnamon|peppermint|mint'
+        . '|salted|brown\s+sugar|blueberry|pancake|chocolate|white|dark|dirty|rose|cardamom|gingerbread|eggnog'
+        . '|s\'mores|signature|house|seasonal|holiday|classic|single|double|shot|of|the|a|and|&|with|w\/'
+        . '|\d+\s*oz|[\d.]+';
+
+    /** A café drink listed as a product ("Latte", "Iced Oat Mocha", "Steamer - 12 oz"). */
+    public static function looksLikeCafeDrink(string $title): bool
+    {
+        $t = strtolower(trim($title));
+        // A bag that carries a drink word is still a bag.
+        if (preg_match('/\b(blend|beans?|coffee|roast(?:ed)?|bag|ground|whole|origin|filter|espresso)\b/', $t)) {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/^(?:(?:' . self::DRINK_MODIFIERS . ')\s+){0,4}(?:' . self::DRINK_NOUNS . ')(?:\s*[\-–(|,].*)?$/u',
+            $t
+        );
+    }
+
+    /**
+     * Pantry goods a roaster's store also sells. Anchored tightly: "Brown
+     * Sugar" and "Maple Syrup" are everyday tasting notes in coffee names, so
+     * only the unambiguous product forms match (cane/raw/demerara sugar, a
+     * short "<flavour> Syrup" title, alt milks, grinder-seasoning beans).
+     */
+    public static function looksLikeGrocery(string $title): bool
+    {
+        $t = strtolower(trim($title));
+        if (preg_match('/\b(cane\s+sugar|raw\s+sugar|demerara|turbinado|sugar\s+(?:cubes?|sticks?|packets?)|sweeteners?|creamers?'
+            . '|oat\s+milk|almond\s+milk|soy\s+milk|coconut\s+milk|seasoning\s+(?:coffee|beans?|roast)|(?:grinder|roaster)\s+seasoning)\b/u', $t)) {
+            return true;
+        }
+        // "<flavour> Syrup" / "Syrup - Caramel" as the whole title.
+        if (preg_match('/^(?:[a-z\'&]+\s+){0,2}syrups?\s*(?:[\-–(].*)?$/u', $t)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Broader, label-only version for the rejection log's "suspected cause":
+     * anything the two matchers above catch plus bare menu words the strict
+     * classifier leaves alone because bags share the name.
+     */
+    public static function looksLikeNonCoffeeName(string $title): bool
+    {
+        if (self::looksLikeCafeDrink($title) || self::looksLikeGrocery($title)) {
+            return true;
+        }
+
+        return (bool) preg_match('/^\s*(?:drip|steamer|espresso\s+shot|shot|tea|lemonade|smoothie)\s*(?:[\-–(].*)?$/iu', trim($title));
+    }
+
+    /**
      * Should this product be imported as a coffee bean?
      * Excludes gear, gift cards, subscriptions, sample packs, chocolate, tea.
      * Includes single-origins, blends, decaf — anything that's a bag of beans.
@@ -368,6 +444,11 @@ final class Shared
         $excludeTypes = ['equipment', 'gear', 'merch', 'merchandise', 'gift card', 'subscription',
                          'apparel', 'clothing', 'class', 'workshop', 'event', 'chocolate', 'tea',
                          'matcha', 'syrup', 'milk', 'water',
+                         // Pantry / café-menu categories (sugar, sweeteners,
+                         // creamers, order-ahead drinks). 'menu' alone is too
+                         // loose, so the composite forms are spelled out.
+                         'sugar', 'sweetener', 'creamer', 'grocery', 'pantry',
+                         'cafe menu', 'café menu', 'drinks menu', 'hot drinks', 'cold drinks',
                          'bundle', 'capsule', 'pod', 'instant', 'insurance', 'goods', 'shopstorm',
                          'card', 'voucher', 'cleaning', 'cleaner', 'descaling', 'descaler',
                          'accessory', 'accessories', 'tool', 'book', 'ebook',
@@ -405,6 +486,16 @@ final class Shared
         // " - " name delimiter; anchored so no real coffee name is caught (none
         // start with "WS - ").
         if (preg_match('/^\s*ws(?:\d+|-\w+)?\s*-\s/i', $title)) return false;
+        // Café menu drinks sold online for pickup ("Latte", "Blueberry Pancake
+        // Latte", "Steamer", "Iced Oat Mocha"). Their "12 oz" cup sizes parse as
+        // 340 g bags and they landed in the catalogue at 1–2¢/g until the price
+        // gate happened to catch them. Bags that merely carry a drink word
+        // ("Cold Brew Blend", "Latte Art Espresso") are protected inside.
+        if (self::looksLikeCafeDrink($title)) return false;
+        // Pantry items a roaster's store also carries: cane sugar, syrups, alt
+        // milks, grinder-seasoning beans.
+        if (self::looksLikeGrocery($title)) return false;
+
         // Hard exclusions by title keywords.
         if (str_contains($titleLower, 'gift card') || str_contains($titleLower, 'subscription')) return false;
         if (str_contains($titleLower, 'sample set') || str_contains($titleLower, 'sample pack')) return false;
