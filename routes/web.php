@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\ModerationController as AdminModerationController
 use App\Http\Controllers\Admin\LoginController as AdminLoginController;
 use App\Http\Controllers\Admin\LogController as AdminLogController;
 use App\Http\Controllers\Admin\AttentionController as AdminAttentionController;
+use App\Http\Controllers\Admin\RejectionController as AdminRejectionController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 use App\Http\Controllers\HealthController;
 use Illuminate\Support\Facades\Route;
@@ -48,6 +49,11 @@ Route::prefix('admin')->name('admin.')->middleware('admin.auth')->group(function
     Route::get('attention', [AdminAttentionController::class, 'index'])->name('attention.index');
     Route::post('attention/deactivate-dead', [AdminAttentionController::class, 'deactivateDead'])->name('attention.deactivate_dead');
     Route::post('attention/{roaster}/retry', [AdminAttentionController::class, 'retry'])->name('attention.retry');
+
+    // Dropped variants (sanity-gate rejections): review a row to retire it from the ops emails.
+    Route::get('rejections', [AdminRejectionController::class, 'index'])->name('rejections.index');
+    Route::post('rejections/{rejection}/review', [AdminRejectionController::class, 'review'])->name('rejections.review');
+    Route::post('rejections/{rejection}/unreview', [AdminRejectionController::class, 'unreview'])->name('rejections.unreview');
 
     Route::resource('roasters', AdminRoasterController::class)->except(['show']);
 
