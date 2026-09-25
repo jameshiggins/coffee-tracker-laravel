@@ -67,7 +67,11 @@ class GenericHtmlScraper implements RoasterScraper
     {
         $response = SafeHttp::client(15)->get($url);
         if (!$response->ok()) {
-            throw new RuntimeException("Generic fetch failed: {$response->status()} for {$url}");
+            $message = "Generic fetch failed: {$response->status()} for {$url}";
+            if ($response->status() === 429) {
+                throw new RateLimitedException($message, (int) $response->header('Retry-After'));
+            }
+            throw new RuntimeException($message);
         }
         return $response->body();
     }

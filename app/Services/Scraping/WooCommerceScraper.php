@@ -41,7 +41,11 @@ class WooCommerceScraper implements RoasterScraper
             $endpoint = $origin . '/wp-json/wc/store/products?per_page=' . self::PER_PAGE . '&page=' . $page;
             $response = SafeHttp::client(15)->acceptJson()->get($endpoint);
             if (!$response->ok()) {
-                throw new RuntimeException("WooCommerce fetch failed: {$response->status()} for {$endpoint}");
+                $message = "WooCommerce fetch failed: {$response->status()} for {$endpoint}";
+                if ($response->status() === 429) {
+                    throw new RateLimitedException($message, (int) $response->header('Retry-After'));
+                }
+                throw new RuntimeException($message);
             }
             $batch = $response->json();
             if (!is_array($batch) || empty($batch)) break;

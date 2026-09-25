@@ -97,7 +97,13 @@ class ShopifyScraper implements RoasterScraper
                 // not really Shopify); a later-page failure just ends
                 // pagination with whatever we already collected.
                 if ($page === 1) {
-                    throw new RuntimeException("Shopify fetch failed: {$response->status()} for {$endpoint}");
+                    $message = "Shopify fetch failed: {$response->status()} for {$endpoint}";
+                    if ($response->status() === 429) {
+                        // Retries exhausted (see getWithRateLimitRetry): this is
+                        // the platform throttling our IP tonight, not the roaster.
+                        throw new RateLimitedException($message, (int) $response->header('Retry-After'));
+                    }
+                    throw new RuntimeException($message);
                 }
                 break;
             }
