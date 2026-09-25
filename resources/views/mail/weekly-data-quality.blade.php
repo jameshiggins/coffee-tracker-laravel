@@ -1,8 +1,6 @@
 @php
-    $reasonLabels = [
-        'price_non_positive' => 'Zero / negative price',
-        'cpg_out_of_band' => 'Price-per-gram out of band',
-    ];
+    $reasonLabels = \App\Models\ScraperRejectionLog::reasonLabels();
+    $suspectLabels = \App\Models\ScraperRejectionLog::suspectLabels();
     $bucketLabels = [
         'unplaced' => 'No coordinates (invisible on map)',
         'centroid_only' => 'City-centroid only (never resolved)',
@@ -29,7 +27,7 @@ Across {{ $report['imports']['total'] }} active roaster(s):
 @if($report['rejections']['total'] === 0)
 No variants were dropped at the price / price-per-gram gate. ✓
 @else
-**{{ $report['rejections']['total'] }}** variant(s) currently dropped at the import sanity gate.
+**{{ $report['rejections']['total'] }}** variant(s) currently dropped at the import sanity gate.{{ ($report['rejections']['reviewed'] ?? 0) > 0 ? ' '.$report['rejections']['reviewed'].' reviewed row(s) hidden.' : '' }}
 
 By reason:
 @foreach($report['rejections']['by_reason'] as $reason => $count)
@@ -54,7 +52,7 @@ Which beans:
     if (($it['cpg'] ?? null) !== null) { $detail .= ' = '.$it['cpg'].'¢/g'; }
     if (!empty($it['size_label'])) { $detail .= ' — “'.$it['size_label'].'”'; }
 @endphp
-- **{{ $it['coffee'] ?: 'Unnamed variant' }}** ({{ $it['roaster'] }}) — {{ $reasonLabels[$it['reason']] ?? $it['reason'] }}{{ $detail !== '' ? ': '.$detail : '' }}
+- **{{ $it['coffee'] ?: 'Unnamed variant' }}** ({{ $it['roaster'] }}) — {{ $reasonLabels[$it['reason']] ?? $it['reason'] }}{{ $detail !== '' ? ': '.$detail : '' }} — _{{ $suspectLabels[$it['suspected'] ?? 'unknown'] ?? $it['suspected'] }}_
 @endforeach
 @if($report['rejections']['total'] > count($report['rejections']['items']))
 _…and {{ $report['rejections']['total'] - count($report['rejections']['items']) }} more not shown._

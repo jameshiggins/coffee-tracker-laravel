@@ -259,4 +259,32 @@ class RoasterImportTest extends TestCase
         $this->assertSame('error', $roaster->last_import_status);
         $this->assertNotEmpty($roaster->last_import_error);
     }
+
+    public function test_a_rate_limit_leaves_the_roasters_last_status_untouched(): void
+    {
+        // Shopify throttles products.json per client IP platform-wide, so a 429
+        // is a verdict on tonight's run, not on the roaster. It must not flip a
+        // healthy roaster to "error" (the ops email listed 16–20 of these on bad
+        // nights) nor start the auto-deactivation clock.
+        \Illuminate\Support\Sleep::fake();
+        $roaster = Roaster::factory()->create([
+            'name' => 'Busy Co', 'website' => 'https://busy.test', 'platform' => 'shopify',
+            'last_import_status' => 'success', 'last_import_error' => null, 'import_failing_since' => null,
+        ]);
+        Http::fake(['*' => Http::response('', 429, ['Retry-After' => '5'])]);
+
+        try {
+            (new RoasterImporter())->import('https://busy.test', name: 'Busy Co');
+            $this->fail('expected the rate limit to surface');
+        } catch (\App\Services\Scraping\RateLimitedException) {
+            // expected
+        }
+
+        $roaster->refresh();
+        $this->assertSame('success', $roaster->last_import_status, 'status untouched');
+        $this->assertNull($roaster->last_import_error);
+        $this->assertNull($roaster->import_failing_since, 'no failure streak started');
+        $this->assertDatabaseHas('admin_logs', ['event' => 'import.roaster.rate_limited']);
+        $this->assertDatabaseMissing('admin_logs', ['event' => 'import.roaster.failed']);
+    }
 }

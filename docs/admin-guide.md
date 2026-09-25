@@ -11,6 +11,7 @@ fresh, and the artisan commands you can run by hand. Visitor-facing behaviour
 2. [The admin screens](#the-admin-screens)
    - [Roasters (home)](#roasters-home)
    - [Needs Attention](#needs-attention)
+   - [Dropped variants](#dropped-variants)
    - [Import from URL](#import-from-url)
    - [Roaster form](#roaster-form)
    - [Coffee & bag-size editor](#coffee--bag-size-editor)
@@ -49,8 +50,9 @@ Things worth knowing:
 
 ## The admin screens
 
-The header links to Roasters, Needs Attention, Logs and the live site. The
-roaster list also links to Moderation, Import from URL and Add Roaster.
+The header links to Roasters, Needs Attention, Dropped variants, Logs and the
+live site. The roaster list also links to Moderation, Import from URL and Add
+Roaster.
 
 ### Roasters (home)
 
@@ -79,13 +81,38 @@ step:
 | Bucket | Meaning | Do |
 |---|---|---|
 | **Dead domains** | DNS won't resolve — closed, rebranded, or the domain lapsed. | Auto-deactivated after 7 consecutive days by `roasters:auto-deactivate-dead`, or click **Deactivate all** now. If they rebranded, fix the website URL in Edit instead. |
-| **Blocked (401 / 403)** | Site is up but its WAF refused the scraper. | **Retry** — usually transient. If it persists, that site needs a scraper tweak. |
+| **Blocked (401 / 403)** | Site is up but refused the scraper: a bot-block, or a password-protected storefront (Shopify answers 401 on `products.json` when the shop is behind its password page). | **Retry**. If it persists for weeks the shop is closed to the public; `roasters:auto-deactivate-dead` hides it after 30 consecutive days. |
+| **Rate limited (429)** | The *last recorded* run was throttled by the storefront platform. Tonight's import no longer records a 429 at all (it pauses and retries instead), so anything here is a leftover from before that change. | **Retry**, or just wait for tonight. |
+| **Timed out** | The host answered too slowly. | One slow night is noise. The daily email only flags a timeout once it has repeated; **Retry** if it keeps happening. |
 | **Other import errors** | Anything else threw. | **Retry**, then read the exception in [Logs](#logs). |
 | **Empty catalog** | Site responded, zero coffees found. | **Retry**. If it stays empty, the storefront is on a platform the scrapers don't read, or the shop genuinely has nothing in stock. Check whether the real store lives on a different host (e.g. `shop.example.com`) and update the website URL. |
 | **Never imported** | Added by hand and never scraped. | **Retry** to pull the catalogue. |
 
 Roasters that are healthy don't appear. Deactivated roasters don't either —
 `roasters:retry-inactive` gives those a weekly second chance automatically.
+
+### Dropped variants
+
+`/admin/rejections` — every bag size the importer refused at the price sanity
+gate on the latest imports, grouped by roaster, with the offending numbers and
+the gate's best guess at *why*:
+
+| Suspected | Meaning | Do |
+|---|---|---|
+| **Bag-size mis-parse** | The price only makes sense if the grams are wrong ("200 g" read as 2 kg, a 12 oz cup read as 340 g). | The scraper needs a fix. Read the size label shown next to it. |
+| **Probably not coffee** | A café drink, sugar, syrup, or grinder-seasoning beans that slipped past the classifier. | The classifier needs a rule; the weekly `coffees:purge-non-coffee` sweep removes anything already imported once the rule lands. |
+| **Plausible bulk pricing** | A 2 lb+ bag under the bulk floor of 1.5¢/g. Often a real office bag. | If it's genuine, **Mark reviewed**. |
+| **Sample or portion pack** | Tiny and expensive per gram. | Usually correct to drop. |
+| **Unclear** | None of the above patterns matched. | Look at the numbers. |
+
+**Mark reviewed** retires a row from both ops emails. The flag survives
+re-imports for as long as the feed keeps sending the same variant with the same
+problem; if the numbers change or the variant disappears the row goes with it,
+so a new problem can't hide behind an old review. **Re-open** undoes it.
+
+The gate itself: retail bags must land between 2.5 and 250 ¢/g, bags of 2 lb
+and up between 1.5 and 250 ¢/g, and no variant may claim four or more times the
+grams of a sibling size of the same coffee for no more money.
 
 ### Import from URL
 
@@ -198,7 +225,7 @@ runs imports off the web request path. See `app/Console/Kernel.php`.
 |---|---|---|
 | Daily 11:00 | `roasters:import-all` | Re-scrapes every active roaster with a website. The main catalogue refresh. |
 | Daily 11:30 | `reports:daily-ops` | Emails the ops summary (see Monitoring). |
-| Daily 11:50 | `roasters:auto-deactivate-dead` | Deactivates roasters whose domain has failed DNS for 7+ days. |
+| Daily 11:50 | `roasters:auto-deactivate-dead` | Deactivates roasters whose domain has failed DNS for 7+ days, or whose storefront has answered 401/403 for 30+ days. |
 | Daily 12:10 | `logs:prune` | Drops admin-log rows older than 14 days. |
 | Daily 14:00 | `alerts:restock` | Emails users whose wishlisted beans came back in stock in the last 24 h. |
 | Mon 13:00 | `reports:weekly-digest` | Deeper data-quality audit email. |
@@ -221,10 +248,16 @@ Four signals, each catching a different failure. Full setup in
    scheduler — the worst failure, because the site looks fine while the
    catalogue quietly goes stale.
 2. **Daily ops email** (11:30 UTC) — roasters added in the last 24 h, active
-   roasters failing import with the error text, variant rejections, and a
-   mail-delivery confirmation. It sends *every day*; if it stops arriving,
-   that is itself the alarm. Preview: `php artisan reports:daily-ops
-   --dry-run`; quieter version: `--only-when-notable`.
+   roasters failing import, dropped variants, and a mail-delivery
+   confirmation. The subject says **action needed** only when something
+   *changed*: a roaster added, a roaster that *started* failing in the last
+   24 h, a variant dropped for the first time, or mail going quiet. Failures
+   and drops that were already there yesterday are listed under **Ongoing**
+   with their age; a first timed-out night and any leftover rate-limit
+   verdict sit under **Watching** and don't count. Rows you've marked
+   reviewed on the Dropped variants page are hidden. It sends *every day*;
+   if it stops arriving, that is itself the alarm. Preview: `php artisan
+   reports:daily-ops --dry-run`; quieter version: `--only-when-notable`.
 3. **Weekly digest** (Mon 13:00 UTC) — import health over the week, dropped
    variants, likely duplicate roasters, address gaps.
 4. **Sentry** — uncaught exceptions, once `SENTRY_LARAVEL_DSN` is set.
@@ -282,10 +315,10 @@ Every command is safe to run repeatedly. Read-only ones are marked.
 
 | Command | What it does |
 |---|---|
-| `roasters:import-all` | Re-import every active roaster with a website. `--only=<slug>` for one. |
+| `roasters:import-all` | Re-import every active roaster with a website. `--only=<slug>` for one. On a 429 from the storefront platform it pauses 90 s, moves on, and retries the throttled roasters at the end; a still-throttled roaster is *skipped*, not failed, and keeps yesterday's status. |
 | `roasters:apply-corrections [--dry-run]` | Idempotent data fixes: repoint known-stale website URLs, create the roasters in `REQUIRED_ROASTERS`, apply verified addresses in `ADDRESS_FIXES`. Run after deploying a change to that file. |
 | `roasters:scrape-addresses [--force] [--limit=N] [--only=<slug>]` | Address-resolution cascade (site JSON-LD → contact page → Nominatim). Skips roasters already resolved unless `--force`. Never overwrites `manual` pins. |
-| `roasters:auto-deactivate-dead [--days=7] [--dry-run]` | Deactivate roasters whose DNS has failed for N days. |
+| `roasters:auto-deactivate-dead [--days=7] [--blocked-days=30] [--dry-run]` | Deactivate roasters whose DNS has failed for N days, or whose storefront has answered 401/403 for M days. Never timeouts, rate limits or empty catalogs. |
 | `roasters:retry-inactive [--dry-run]` | Re-try deactivated roasters; reactivate the ones that import successfully. |
 | `roasters:check-links [--only=<slug>] [--max-broken=20]` | *Read-only.* HEAD-probe every roaster, coffee and variant URL and report dead links. |
 | `roasters:check-addresses` | *Read-only.* Audit of unplaced pins, centroid-only coordinates, missing street/postal, stale verifications. |

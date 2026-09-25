@@ -133,4 +133,66 @@ class ImportAllCommandTest extends TestCase
         $this->assertSame(1, Roaster::where('slug', 'wanted')->value('id') !== null
             ? Roaster::where('slug', 'wanted')->first()->coffees()->count() : 0);
     }
+
+    public function test_rate_limited_roasters_are_paused_deferred_and_retried_at_the_end(): void
+    {
+        \Illuminate\Support\Sleep::fake();
+        Roaster::create(['name' => 'Alpha', 'slug' => 'alpha', 'city' => 'X', 'platform' => 'shopify',
+            'website' => 'https://alpha.example.com', 'is_active' => true, 'has_shipping' => true]);
+        Roaster::create(['name' => 'Beta', 'slug' => 'beta', 'city' => 'Y', 'platform' => 'shopify',
+            'website' => 'https://beta.example.com', 'is_active' => true, 'has_shipping' => true]);
+
+        // Beta is throttled for its first attempt (the scraper's own 3 tries),
+        // then answers normally when the command comes back to it.
+        $betaCalls = 0;
+        Http::fake([
+            'alpha.example.com/*' => Http::response($this->shopifyResponse('Alpha Bean'), 200),
+            'beta.example.com/*' => function () use (&$betaCalls) {
+                $betaCalls++;
+
+                return $betaCalls <= 3
+                    ? Http::response('', 429, ['Retry-After' => '5'])
+                    : Http::response($this->shopifyResponse('Beta Bean'), 200);
+            },
+        ]);
+
+        $this->artisan('roasters:import-all')
+            ->expectsOutputToContain('rate limited — deferred')
+            ->expectsOutputToContain('Retrying 1 rate-limited roaster(s)')
+            ->expectsOutputToContain('Done: 2 imported, 0 failed, 0 skipped (rate limited).')
+            ->assertExitCode(0);
+
+        $this->assertSame(2, Coffee::count(), 'both roasters imported in the end');
+        $beta = Roaster::where('slug', 'beta')->first();
+        $this->assertSame('success', $beta->last_import_status);
+        $this->assertNull($beta->import_failing_since);
+
+        // The run stood back once for the limiter window (plus the scraper's own
+        // Retry-After waits), and never wrote an "import failed" log for Beta.
+        \Illuminate\Support\Sleep::assertSlept(fn ($d) => $d->totalSeconds === \App\Console\Commands\ImportAllRoasters::RATE_LIMIT_PAUSE_SECONDS, 1);
+        $this->assertDatabaseMissing('admin_logs', ['event' => 'import.roaster.failed']);
+        $this->assertDatabaseHas('admin_logs', ['event' => 'import.roaster.rate_limited']);
+    }
+
+    public function test_a_roaster_still_throttled_on_the_second_pass_is_skipped_not_failed(): void
+    {
+        \Illuminate\Support\Sleep::fake();
+        Roaster::create(['name' => 'Alpha', 'slug' => 'alpha', 'city' => 'X', 'platform' => 'shopify',
+            'website' => 'https://alpha.example.com', 'is_active' => true, 'has_shipping' => true]);
+        $beta = Roaster::create(['name' => 'Beta', 'slug' => 'beta', 'city' => 'Y', 'platform' => 'shopify',
+            'website' => 'https://beta.example.com', 'is_active' => true, 'has_shipping' => true,
+            'last_import_status' => 'success', 'last_imported_at' => now()->subDay()]);
+
+        Http::fake([
+            'alpha.example.com/*' => Http::response($this->shopifyResponse('Alpha Bean'), 200),
+            'beta.example.com/*' => Http::response('', 429, ['Retry-After' => '5']),
+        ]);
+
+        $this->artisan('roasters:import-all')
+            ->expectsOutputToContain('still rate limited — skipped')
+            ->expectsOutputToContain('Done: 1 imported, 0 failed, 1 skipped (rate limited).')
+            ->assertExitCode(0);
+
+        $this->assertSame('success', $beta->fresh()->last_import_status, "yesterday's verdict stands");
+    }
 }

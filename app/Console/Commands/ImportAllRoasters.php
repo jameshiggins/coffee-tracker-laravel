@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Roaster;
 use App\Services\RoasterImporter;
+use App\Services\Scraping\RateLimitedException;
 use Illuminate\Console\Command;
 
 class ImportAllRoasters extends Command
@@ -13,6 +14,14 @@ class ImportAllRoasters extends Command
                             {--dry-run : List what would be attempted without making HTTP calls}';
 
     protected $description = 'Re-import current inventory for every active roaster with a website (Shopify storefronts).';
+
+    /**
+     * How long to stand back the first time the storefront platform answers
+     * 429 after the scraper's own retries. Shopify's per-IP window is longer
+     * than the ≤30 s Retry-After the scraper honours, so without this the
+     * rest of the alphabet failed on bad nights.
+     */
+    public const RATE_LIMIT_PAUSE_SECONDS = 90;
 
     public function handle(RoasterImporter $importer): int
     {
@@ -38,6 +47,8 @@ class ImportAllRoasters extends Command
 
         $ok = 0;
         $failed = [];
+        $deferred = [];
+        $paused = false;
         foreach ($roasters as $i => $r) {
             // Pace the run. ~90 of these stores are Shopify, which rate-limits
             // products.json PER CLIENT IP platform-wide — a zero-gap burst from
@@ -54,14 +65,51 @@ class ImportAllRoasters extends Command
                 $count = $imported->coffees()->count();
                 $this->line(sprintf("  ✓ %-40s %d beans imported", $r->name, $count));
                 $ok++;
+            } catch (RateLimitedException $e) {
+                // The platform is throttling our IP. One tripped limiter used to
+                // fail every remaining Shopify roaster in the run (16–20 "errors"
+                // on a bad night, all 429). Park this roaster for a second pass,
+                // and the first time it happens, stand back long enough for the
+                // limiter window to close before carrying on.
+                $deferred[] = $r;
+                $this->line(sprintf("  ⏸ %-40s rate limited — deferred", $r->name));
+                if (! $paused) {
+                    $paused = true;
+                    $this->warn(sprintf('  Storefront platform is rate limiting this IP; pausing %ds before continuing.', self::RATE_LIMIT_PAUSE_SECONDS));
+                    \Illuminate\Support\Sleep::for(self::RATE_LIMIT_PAUSE_SECONDS)->seconds();
+                }
             } catch (\Throwable $e) {
                 $failed[] = ['roaster' => $r->name, 'reason' => $e->getMessage()];
                 $this->line(sprintf("  ✗ %-40s %s", $r->name, $this->shortReason($e->getMessage())));
             }
         }
 
+        // Second pass for the rate-limited roasters. Still throttled = skipped,
+        // not failed: their last status stays whatever the previous night said.
+        $skipped = [];
+        if ($deferred !== []) {
+            $this->newLine();
+            $this->info('Retrying ' . count($deferred) . ' rate-limited roaster(s).');
+            foreach ($deferred as $r) {
+                if (! $slug && ! app()->runningUnitTests()) {
+                    \Illuminate\Support\Sleep::for(2)->seconds();
+                }
+                try {
+                    $imported = $importer->import($r->website, name: $r->name, city: $r->city, region: $r->region);
+                    $this->line(sprintf("  ✓ %-40s %d beans imported", $r->name, $imported->coffees()->count()));
+                    $ok++;
+                } catch (RateLimitedException $e) {
+                    $skipped[] = $r->name;
+                    $this->line(sprintf("  ⏸ %-40s still rate limited — skipped", $r->name));
+                } catch (\Throwable $e) {
+                    $failed[] = ['roaster' => $r->name, 'reason' => $e->getMessage()];
+                    $this->line(sprintf("  ✗ %-40s %s", $r->name, $this->shortReason($e->getMessage())));
+                }
+            }
+        }
+
         $this->newLine();
-        $this->info("Done: {$ok} imported, " . count($failed) . " failed.");
+        $this->info("Done: {$ok} imported, " . count($failed) . ' failed, ' . count($skipped) . ' skipped (rate limited).');
 
         // Systemic-failure signal. A handful of dead roasters is normal (sites
         // go down) and stays SUCCESS — the daily ops email itemizes them. But

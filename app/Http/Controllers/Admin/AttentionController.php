@@ -14,7 +14,10 @@ use Illuminate\Http\RedirectResponse;
  *
  *   dead_domain    → domain unresolvable; auto-deactivated after 7 days, or
  *                    bulk-deactivate them here now
- *   blocked        → 401/403 bot-block, often transient → Retry
+ *   blocked        → 401/403 bot-block; auto-deactivated after 30 days → Retry
+ *   rate_limited   → last recorded run was throttled (429) → Retry (tonight's
+ *                    run no longer records these; leftovers clear on success)
+ *   timeout        → host answers too slowly → Retry; repeat nights matter
  *   error          → other import failure → Retry / investigate
  *   empty          → site alive but zero coffees (scraper coverage or genuinely
  *                    sold out) → Retry
@@ -32,6 +35,8 @@ class AttentionController extends Controller
         $groups = [
             'dead_domain' => collect(),
             'blocked' => collect(),
+            'rate_limited' => collect(),
+            'timeout' => collect(),
             'error' => collect(),
             'empty' => collect(),
             'never_imported' => collect(),

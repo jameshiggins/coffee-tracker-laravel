@@ -7,7 +7,11 @@
         'dead_domain' => ['label' => 'Dead domains', 'badge' => '#dc3545',
             'blurb' => "Website won't resolve — closed, rebranded, or the domain lapsed. Auto-deactivated after 7 days of failures."],
         'blocked' => ['label' => 'Blocked (401 / 403)', 'badge' => '#daa520',
-            'blurb' => 'Reachable but refusing our scraper (bot-block). Often transient — Retry, and if it persists it needs a scraper tweak.'],
+            'blurb' => 'Reachable but refusing our scraper — a bot-block or a password-protected storefront. Retry; if it persists the shop is probably closed to the public. Auto-deactivated after 30 days of refusals.'],
+        'rate_limited' => ['label' => 'Rate limited (429)', 'badge' => '#6c757d',
+            'blurb' => 'The last recorded run was throttled by the storefront platform. Not a roaster problem — Retry, or wait for tonight\'s import (which pauses and retries on 429 instead of recording it).'],
+        'timeout' => ['label' => 'Timed out', 'badge' => '#daa520',
+            'blurb' => 'The host answered too slowly. One slow night is noise; the daily email only flags a timeout once it repeats.'],
         'error' => ['label' => 'Other import errors', 'badge' => '#dc3545',
             'blurb' => 'Something else failed during import. Retry, then check the logs for the exception.'],
         'empty' => ['label' => 'Empty catalog', 'badge' => '#6c757d',
@@ -63,7 +67,7 @@
                         <th>Roaster</th>
                         <th>City</th>
                         <th style="width:120px;">Last import</th>
-                        @if ($kind === 'dead_domain')<th style="width:120px;">Failing since</th>@endif
+                        @if (in_array($kind, ['dead_domain', 'blocked', 'timeout'], true))<th style="width:120px;">Failing since</th>@endif
                         <th>Detail</th>
                         <th style="width:200px;text-align:right;">Actions</th>
                     </tr>
@@ -76,7 +80,7 @@
                             <td style="white-space:nowrap;color:#888;">
                                 {{ $roaster->last_imported_at?->diffForHumans() ?? 'never' }}
                             </td>
-                            @if ($kind === 'dead_domain')
+                            @if (in_array($kind, ['dead_domain', 'blocked', 'timeout'], true))
                                 <td style="white-space:nowrap;color:#dc3545;">
                                     {{ $roaster->import_failing_since?->format('M j') ?? '—' }}
                                 </td>

@@ -23,11 +23,15 @@ class NeedsAttentionTest extends TestCase
     {
         $dead = $this->roaster(['last_import_status' => 'error', 'last_import_error' => 'cURL error 6: Could not resolve host: gone.test']);
         $blocked = $this->roaster(['last_import_status' => 'error', 'last_import_error' => 'Shopify fetch failed: 401 for https://x.test']);
-        $other = $this->roaster(['last_import_status' => 'error', 'last_import_error' => 'Timed out after 8s']);
+        $slow = $this->roaster(['last_import_status' => 'error', 'last_import_error' => 'cURL error 28: Connection timed out after 10002 milliseconds']);
+        $throttled = $this->roaster(['last_import_status' => 'error', 'last_import_error' => 'Shopify fetch failed: 429 for https://x.test/products.json']);
+        $other = $this->roaster(['last_import_status' => 'error', 'last_import_error' => 'HTTP 500 from storefront feed']);
         $ok = $this->roaster(['last_import_status' => 'success']);
 
         $this->assertSame('dead_domain', $dead->importErrorKind());
         $this->assertSame('blocked', $blocked->importErrorKind());
+        $this->assertSame('timeout', $slow->importErrorKind());
+        $this->assertSame('rate_limited', $throttled->importErrorKind());
         $this->assertSame('error', $other->importErrorKind());
         $this->assertNull($ok->importErrorKind());
     }
@@ -36,13 +40,17 @@ class NeedsAttentionTest extends TestCase
     {
         $this->roaster(['name' => 'Dead Co', 'last_import_status' => 'error', 'last_import_error' => 'Could not resolve host: dead.test']);
         $this->roaster(['name' => 'Blocked Co', 'last_import_status' => 'error', 'last_import_error' => 'fetch failed: 401']);
+        $this->roaster(['name' => 'Slow Co', 'last_import_status' => 'error', 'last_import_error' => 'cURL error 28: Connection timed out']);
+        $this->roaster(['name' => 'Throttled Co', 'last_import_status' => 'error', 'last_import_error' => 'Shopify fetch failed: 429 for x']);
         $this->roaster(['name' => 'Empty Co', 'last_import_status' => 'empty', 'last_imported_at' => now()]);
         $this->roaster(['name' => 'Never Co', 'last_imported_at' => null, 'last_import_status' => null]);
         $this->roaster(['name' => 'Healthy Co', 'last_import_status' => 'success', 'last_imported_at' => now()]);
 
         $res = $this->actingAsAdmin()->get('/admin/attention')->assertOk();
-        $res->assertSee('Dead Co')->assertSee('Blocked Co')->assertSee('Empty Co')->assertSee('Never Co');
-        $res->assertSee('Dead domains')->assertSee('Blocked (401 / 403)')->assertSee('Empty catalog');
+        $res->assertSee('Dead Co')->assertSee('Blocked Co')->assertSee('Slow Co')->assertSee('Throttled Co')
+            ->assertSee('Empty Co')->assertSee('Never Co');
+        $res->assertSee('Dead domains')->assertSee('Blocked (401 / 403)')->assertSee('Timed out')
+            ->assertSee('Rate limited (429)')->assertSee('Empty catalog');
         // Healthy roasters aren't listed as needing attention.
         $res->assertDontSee('Healthy Co');
     }

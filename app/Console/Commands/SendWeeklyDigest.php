@@ -40,10 +40,14 @@ class SendWeeklyDigest extends Command
             return self::SUCCESS;
         }
 
-        $recipient = $this->option('email') ?: config('mail.from.address');
+        // Same precedence as the daily summary: explicit --email, then the ops
+        // address (OPS_EMAIL — the human who reads these), then the from-address.
+        // This used to go straight to the from-address, so the digest landed in
+        // the sender mailbox and the operator never saw a single one.
+        $recipient = $this->option('email') ?: config('mail.ops_address') ?: config('mail.from.address');
 
         if (empty($recipient)) {
-            $this->error('No recipient: pass --email or set mail.from.address.');
+            $this->error('No recipient: pass --email or set OPS_EMAIL / mail.from.address.');
 
             return self::FAILURE;
         }

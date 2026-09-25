@@ -10,6 +10,7 @@ use App\Services\FrenchToEnglish;
 use App\Services\OriginGazetteer;
 use App\Services\Scraping\AboutPageScraper;
 use App\Services\Scraping\FaviconScraper;
+use App\Services\Scraping\RateLimitedException;
 use App\Services\Scraping\ScraperRegistry;
 use App\Services\Scraping\Shared;
 use App\Services\Scraping\ShippingPolicyScraper;
@@ -98,6 +99,16 @@ class RoasterImporter
         try {
             $scraper = $this->registry->detect($website, $roaster->platform);
             $coffees = $scraper->fetch($website);
+        } catch (RateLimitedException $e) {
+            // Tonight's run tripped the platform's per-IP throttle. That says
+            // nothing about this roaster, so leave last_import_status, the
+            // error text and the failure streak exactly as they were — a 429
+            // must not read as "failing" in the ops email or start the
+            // auto-deactivation clock. The nightly command defers and retries.
+            AdminLog::warning('import.roaster.rate_limited', "Import skipped (rate limited): {$roaster->name} — {$e->getMessage()}", [
+                'roaster_id' => $roaster->id, 'website' => $website, 'retry_after' => $e->retryAfterSeconds,
+            ]);
+            throw $e;
         } catch (\Throwable $e) {
             // Stale-cache recovery: a CACHED platform that now hard-errors
             // (e.g. Shopify /products.json 404 after the roaster migrated to
@@ -297,6 +308,11 @@ class RoasterImporter
         // growing daily-cron history. Clear this roaster's prior rows here —
         // after the empty-fetch guard so a transient empty poll doesn't wipe
         // the breadcrumbs — then syncVariants re-logs whatever it drops below.
+        // Remember when each drop was first seen / whether an operator reviewed
+        // it, keyed by (coffee, bag size, reason), so the fresh rows below keep
+        // that history and the ops email can tell "new today" from "ongoing".
+        $this->priorRejections = ScraperRejectionLog::where('roaster_id', $roaster->id)->get()
+            ->keyBy(fn (ScraperRejectionLog $row) => $row->identity());
         ScraperRejectionLog::where('roaster_id', $roaster->id)->delete();
 
         foreach ($coffees as $c) {
@@ -470,6 +486,38 @@ class RoasterImporter
     }
 
     /**
+     * ¢/g band for a retail bag. Canadian specialty coffee runs roughly 3.5¢/g
+     * (cheapest commodity) to 200¢/g (rare Geisha lots). Below the floor is
+     * almost always a misread bag size; above the ceiling is a sample or a
+     * portion pack.
+     */
+    public const CPG_MIN = 2.5;
+    /**
+     * Bulk bags legitimately price lower per gram — 3 kg office bags and 5 lb
+     * café bags run 2.2–2.4¢/g at real roasters — so from 2 lb up the floor
+     * drops. Kept above 1¢/g, where genuine mis-parses cluster.
+     */
+    public const CPG_MIN_BULK = 1.5;
+    public const BULK_GRAMS = 907;
+    public const CPG_MAX = 250;
+    /**
+     * Sibling consistency: a variant that claims at least this many times the
+     * grams of another variant of the SAME coffee for no more money is a unit
+     * mis-parse ("200 g" read as 2 kg), not a bargain. No real roaster sells
+     * 4× the coffee for the same price.
+     */
+    public const SIBLING_GRAMS_RATIO = 4.0;
+    public const SIBLING_PRICE_SLACK = 1.1;
+
+    /** Prior snapshot of this roaster's rejections, keyed by identity, for history carry-over. */
+    private \Illuminate\Support\Collection $priorRejections;
+
+    public static function cpgFloor(int $grams): float
+    {
+        return $grams >= self::BULK_GRAMS ? self::CPG_MIN_BULK : self::CPG_MIN;
+    }
+
+    /**
      * Upsert variants by (coffee_id, bag_weight_grams). Tracks in_stock
      * transitions on in_stock_changed_at so Q14's restock-alerts cron
      * can find OOS→in-stock deltas.
@@ -483,7 +531,22 @@ class RoasterImporter
         $now = Carbon::now();
         $seen = [];
 
-        foreach ($scrapedVariants as $v) {
+        // Reference siblings for the consistency check below: priced, sized,
+        // and inside their own ¢/g band — a variant that is itself garbage
+        // ($30 for "10 g") must not indict the good ones.
+        $siblings = [];
+        foreach ($scrapedVariants as $i => $v) {
+            $g = (int) ($v['grams'] ?? 0);
+            $pr = (float) ($v['price'] ?? 0);
+            if ($g > 0 && $pr > 0) {
+                $c = ($pr / $g) * 100;
+                if ($c >= self::cpgFloor($g) && $c <= self::CPG_MAX) {
+                    $siblings[$i] = ['grams' => $g, 'price' => $pr];
+                }
+            }
+        }
+
+        foreach ($scrapedVariants as $i => $v) {
             $grams = $v['grams'];
             $price = (float) ($v['price'] ?? 0);
             if ($price <= 0) {
@@ -493,22 +556,38 @@ class RoasterImporter
                     'price' => $v['price'] ?? null,
                     'grams' => $grams,
                     'source_size_label' => $v['source_size_label'] ?? null,
+                    'suspected' => $this->suspectCause($coffee->name, $grams, null, ScraperRejectionLog::REASON_PRICE_NON_POSITIVE),
                 ]);
                 continue;
             }
-            // Sanity check on $/g — Canadian specialty coffee runs roughly
-            // 3.5¢/g (cheapest commodity) to 200¢/g (rare Geisha lots).
-            // Anything outside this band is almost certainly a parsing bug:
-            // sub-3¢/g usually means a misread bag size (the "3/4lb → 4lb"
-            // class of bug), and >200¢/g means a portion pack or sample.
             if ($grams > 0) {
                 $cpg = ($price / $grams) * 100;
-                if ($cpg < 2.5 || $cpg > 250) {
+                $floor = self::cpgFloor((int) $grams);
+                if ($cpg < $floor || $cpg > self::CPG_MAX) {
                     $this->logRejection($coffee, ScraperRejectionLog::REASON_CPG_OUT_OF_BAND, [
                         'price' => $v['price'] ?? null,
                         'grams' => $grams,
                         'cpg' => round($cpg, 1),
+                        'floor' => $floor,
                         'source_size_label' => $v['source_size_label'] ?? null,
+                        'suspected' => $this->suspectCause($coffee->name, (int) $grams, $cpg, ScraperRejectionLog::REASON_CPG_OUT_OF_BAND),
+                    ]);
+                    continue;
+                }
+                // Inside the band, but implausible next to its own siblings:
+                // ≥4× the grams of another size for no more money. A 3 kg bag at
+                // half the ¢/g of the 250 g is normal; one at a tenth is a
+                // mis-parse, and the flat band alone can't see it.
+                $ref = $this->cheaperSmallerSibling($siblings, $i, (int) $grams, $price);
+                if ($ref !== null) {
+                    $this->logRejection($coffee, ScraperRejectionLog::REASON_CPG_INCONSISTENT, [
+                        'price' => $v['price'] ?? null,
+                        'grams' => $grams,
+                        'cpg' => round($cpg, 1),
+                        'sibling_grams' => $ref['grams'],
+                        'sibling_price' => $ref['price'],
+                        'source_size_label' => $v['source_size_label'] ?? null,
+                        'suspected' => ScraperRejectionLog::SUSPECT_UNIT_ERROR,
                     ]);
                     continue;
                 }
@@ -551,20 +630,75 @@ class RoasterImporter
     }
 
     /**
+     * The sibling that proves variant $i is a mis-parse: one with far fewer
+     * grams that costs at least as much. Null when no such sibling exists.
+     *
+     * @param  array<int, array{grams:int, price:float}>  $siblings
+     * @return array{grams:int, price:float}|null
+     */
+    private function cheaperSmallerSibling(array $siblings, int $i, int $grams, float $price): ?array
+    {
+        foreach ($siblings as $j => $s) {
+            if ($j === $i) {
+                continue;
+            }
+            if ($grams >= $s['grams'] * self::SIBLING_GRAMS_RATIO && $price <= $s['price'] * self::SIBLING_PRICE_SLACK) {
+                return $s;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Best guess at WHY a variant tripped the gate, so the ops email can say
+     * "probably not coffee" or "probably a bag-size mis-parse" instead of
+     * leaving the operator to work it out from the numbers every morning.
+     */
+    private function suspectCause(string $coffeeName, ?int $grams, ?float $cpg, string $reason): string
+    {
+        if ($reason === ScraperRejectionLog::REASON_CPG_INCONSISTENT) {
+            return ScraperRejectionLog::SUSPECT_UNIT_ERROR;
+        }
+        if (Shared::looksLikeNonCoffeeName($coffeeName)) {
+            return ScraperRejectionLog::SUSPECT_NON_COFFEE;
+        }
+        if ($cpg !== null && $cpg > self::CPG_MAX) {
+            return ($grams !== null && $grams <= 100)
+                ? ScraperRejectionLog::SUSPECT_SAMPLE_OR_PORTION
+                : ScraperRejectionLog::SUSPECT_UNIT_ERROR;
+        }
+        if ($cpg !== null && $cpg < 1.0) {
+            return ScraperRejectionLog::SUSPECT_UNIT_ERROR;
+        }
+        if ($grams !== null && $grams >= self::BULK_GRAMS && $cpg !== null) {
+            return ScraperRejectionLog::SUSPECT_BULK_PRICING;
+        }
+
+        return ScraperRejectionLog::SUSPECT_UNKNOWN;
+    }
+
+    /**
      * Trust#9: record one dropped variant. Best-effort — telemetry must never
      * break an import, so a write failure here is swallowed. coffee_name is
      * snapshotted alongside the FK so the log reads cleanly even if the coffee
-     * is later removed or renamed.
+     * is later removed or renamed. first_seen_at / reviewed_at are carried
+     * over from the previous snapshot for the same (coffee, size, reason).
      */
     private function logRejection(\App\Models\Coffee $coffee, string $reason, array $context): void
     {
         try {
+            $prior = ($this->priorRejections ?? collect())
+                ->get(ScraperRejectionLog::identityKey($coffee->id, $context['grams'] ?? null, $reason));
+
             ScraperRejectionLog::create([
                 'roaster_id' => $coffee->roaster_id,
                 'coffee_id' => $coffee->id,
                 'coffee_name' => $coffee->name,
                 'reason' => $reason,
                 'context' => $context,
+                'first_seen_at' => $prior?->first_seen_at ?? $prior?->created_at ?? Carbon::now(),
+                'reviewed_at' => $prior?->reviewed_at,
             ]);
         } catch (\Throwable) {
             // never let a telemetry write abort the catalog sync

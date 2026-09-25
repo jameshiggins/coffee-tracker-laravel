@@ -49,14 +49,17 @@ class DataQualityReport
         // --- Rejections (Trust#9) ---------------------------------------------
         // The table is a snapshot of the latest import per roaster, so these
         // are "currently outstanding" drops rather than a historical tally.
-        $rejectionTotal = ScraperRejectionLog::count();
-        $rejectionByReason = ScraperRejectionLog::query()
+        // Reviewed rows (an operator looked and said "that's fine") stay out of
+        // the counts and the list; they're reported as a single hidden tally.
+        $rejectionTotal = ScraperRejectionLog::unreviewed()->count();
+        $rejectionReviewed = ScraperRejectionLog::reviewed()->count();
+        $rejectionByReason = ScraperRejectionLog::unreviewed()
             ->selectRaw('reason, COUNT(*) as cnt')
             ->groupBy('reason')
             ->pluck('cnt', 'reason')
             ->map(fn ($c) => (int) $c)
             ->all();
-        $rejectionTopRoasters = ScraperRejectionLog::query()
+        $rejectionTopRoasters = ScraperRejectionLog::unreviewed()
             ->selectRaw('roaster_id, COUNT(*) as cnt')
             ->groupBy('roaster_id')
             ->orderByDesc('cnt')
@@ -95,6 +98,7 @@ class DataQualityReport
             ],
             'rejections' => [
                 'total' => $rejectionTotal,
+                'reviewed' => $rejectionReviewed,
                 'by_reason' => $rejectionByReason,
                 'top_roasters' => $rejectionTopRoasters,
                 // Itemized dropped beans (name + reason + offending numbers) so

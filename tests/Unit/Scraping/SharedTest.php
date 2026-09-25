@@ -715,4 +715,103 @@ class SharedTest extends TestCase
         $this->assertIsString($encoded, 'json_encode should not fail after sanitize');
         $this->assertStringContainsString('Espresso', $encoded);
     }
+
+    /** @dataProvider cafeDrinkProvider */
+    public function test_looks_like_coffee_rejects_cafe_menu_drinks(string $title): void
+    {
+        // Order-ahead drinks on a roaster's Shopify: "12 oz" cups parsed as 340 g
+        // bags and reached the catalogue at 1–2¢/g. Whatever the product_type says.
+        $this->assertFalse(Shared::looksLikeCoffee($title, 'Coffee', []), $title);
+        $this->assertTrue(Shared::looksLikeCafeDrink($title), $title);
+    }
+
+    public static function cafeDrinkProvider(): array
+    {
+        return [
+            'latte' => ['Latte'],
+            'flavoured latte' => ['Blueberry Pancake Latte'],
+            'stacked modifiers' => ['Iced Oat Vanilla Latte'],
+            'steamer' => ['Steamer'],
+            'misspelt cappuccino' => ['Cappucino'],
+            'mocha' => ['Mocha'],
+            'flat white' => ['Flat White'],
+            'sized cold brew' => ['Cold Brew - 12 oz'],
+            'bracketed size' => ['Americano (Large)'],
+            'spiced' => ['Spiced Maple Latte'],
+        ];
+    }
+
+    /** @dataProvider drinkWordBeanProvider */
+    public function test_looks_like_coffee_keeps_beans_that_carry_a_drink_word(string $title): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee($title, '', []), $title);
+        $this->assertFalse(Shared::looksLikeCafeDrink($title), $title);
+    }
+
+    public static function drinkWordBeanProvider(): array
+    {
+        return [
+            'classic blend name' => ['Mocha Java'],
+            'origin then drink word' => ['Ethiopia Mocha Harrar'],
+            'blend guard' => ['Cold Brew Blend'],
+            'espresso guard' => ['Latte Art Espresso'],
+            'bare espresso is a bag' => ['Espresso'],
+            'bare drip is a bag' => ['Drip'],
+            'cortado blend' => ['Cortado Blend'],
+        ];
+    }
+
+    /** @dataProvider groceryProvider */
+    public function test_looks_like_coffee_rejects_pantry_items(string $title): void
+    {
+        $this->assertFalse(Shared::looksLikeCoffee($title, 'Coffee', []), $title);
+        $this->assertTrue(Shared::looksLikeGrocery($title), $title);
+    }
+
+    public static function groceryProvider(): array
+    {
+        return [
+            'cane sugar' => ['Organic Cane Sugar'],
+            'syrup' => ['Vanilla Syrup'],
+            'syrup reversed' => ['Syrup - Caramel'],
+            'oat milk' => ['Oat Milk'],
+            'seasoning coffee' => ['Seasoning Coffee'],
+            'grinder seasoning' => ['Grinder Seasoning Beans'],
+        ];
+    }
+
+    /** @dataProvider pantryWordBeanProvider */
+    public function test_looks_like_coffee_keeps_beans_with_pantry_tasting_notes(string $title): void
+    {
+        $this->assertTrue(Shared::looksLikeCoffee($title, '', []), $title);
+        $this->assertFalse(Shared::looksLikeGrocery($title), $title);
+    }
+
+    public static function pantryWordBeanProvider(): array
+    {
+        return [
+            'maple syrup note' => ['Brazil - Maple Syrup, Hazelnut'],
+            'brown sugar blend' => ['Brown Sugar Blend'],
+            'honey processed' => ['Honey, Hunny / Guatemala'],
+        ];
+    }
+
+    public function test_parse_grams_ignores_fluid_ounces(): void
+    {
+        $this->assertNull(Shared::parseGrams('12 fl oz'));
+        $this->assertNull(Shared::parseGrams('16 fl. oz Cold Brew'));
+        $this->assertNull(Shared::parseGrams('12 fluid ounces'));
+        $this->assertSame(340, Shared::parseGrams('12 oz'));
+    }
+
+    public function test_non_coffee_name_labeller_is_broader_than_the_classifier(): void
+    {
+        // "Drip" stays importable (a blend can be called that) but if the price
+        // gate drops it, the rejection is labelled as probably not coffee.
+        $this->assertTrue(Shared::looksLikeNonCoffeeName('Drip'));
+        $this->assertTrue(Shared::looksLikeNonCoffeeName('Latte'));
+        $this->assertTrue(Shared::looksLikeNonCoffeeName('Organic Cane Sugar'));
+        $this->assertFalse(Shared::looksLikeNonCoffeeName('Ethiopia Yirgacheffe'));
+        $this->assertFalse(Shared::looksLikeNonCoffeeName('Fife Blend'));
+    }
 }

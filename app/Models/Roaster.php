@@ -46,10 +46,14 @@ class Roaster extends Model
      * Single source of truth for both the Needs Attention view and
      * roasters:auto-deactivate-dead — keep them from drifting.
      *
-     *   dead_domain — DNS won't resolve (site gone/rebranded/lapsed domain)
-     *   blocked     — reachable but refusing us (401/403 bot-block)
-     *   error       — some other import failure
-     *   null        — not currently in an error state
+     *   dead_domain  — DNS won't resolve (site gone/rebranded/lapsed domain)
+     *   rate_limited — the platform throttled our IP (429); a run problem, not
+     *                  a roaster problem — new imports don't even record it
+     *   blocked      — reachable but refusing us (401/403 bot-block)
+     *   timeout      — the host is up but too slow to answer; one slow night
+     *                  is noise, so the ops email waits for a repeat
+     *   error        — some other import failure
+     *   null         — not currently in an error state
      */
     public function importErrorKind(): ?string
     {
@@ -62,8 +66,14 @@ class Roaster extends Model
         if (str_contains($e, 'could not resolve host') || str_contains($e, 'curl error 6')) {
             return 'dead_domain';
         }
+        if (str_contains($e, '429') || str_contains($e, 'rate limit')) {
+            return 'rate_limited';
+        }
         if (str_contains($e, '401') || str_contains($e, '403') || str_contains($e, 'forbidden')) {
             return 'blocked';
+        }
+        if (str_contains($e, 'curl error 28') || str_contains($e, 'timed out') || str_contains($e, 'timeout')) {
+            return 'timeout';
         }
 
         return 'error';

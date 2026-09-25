@@ -80,9 +80,10 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->emailOutputOnFailure(env('CRON_FAILURE_EMAIL', config('mail.ops_address')));
 
-        // Auto-hide roasters whose domain has been unresolvable for 7+ days.
-        // 11:50 UTC = 50 min after the daily import, so today's fresh
-        // failure/success state is what it acts on.
+        // Auto-hide roasters whose domain has been unresolvable for 7+ days, or
+        // whose storefront has refused us (401/403) for 30+ days. 11:50 UTC =
+        // 50 min after the daily import, so today's fresh failure/success
+        // state is what it acts on.
         $schedule->command('roasters:auto-deactivate-dead')
             ->dailyAt('11:50')
             ->withoutOverlapping()

@@ -211,7 +211,7 @@ class DailyOpsSummaryTest extends TestCase
 
         $cleanReport = app(DailyOpsReport::class)->build(24);
         $clean = (new DailyOpsSummary($cleanReport, false))->render();
-        $this->assertStringContainsString('nothing needs attention', $clean);
+        $this->assertStringContainsString('nothing new needs attention', $clean);
         $this->assertStringContainsString('No roasters added', $clean);
         $this->assertStringContainsString('Working', $clean);
     }
@@ -294,5 +294,106 @@ class DailyOpsSummaryTest extends TestCase
             ->assertExitCode(0);
 
         Mail::assertNothingQueued();
+    }
+
+    public function test_import_errors_are_split_into_new_ongoing_and_watching(): void
+    {
+        SystemHeartbeat::ping('mail.sent');
+        $mk = fn (string $slug, string $error, ?int $failingHours) => $this->backdate($this->roaster($slug, ucfirst($slug).' Coffee', [
+            'last_import_status' => 'error',
+            'last_import_error' => $error,
+            'import_failing_since' => $failingHours === null ? null : now()->subHours($failingHours),
+        ]), 72);
+
+        $mk('fresh', 'Shopify fetch failed: 500 for https://fresh.example.com', 3);       // new
+        $mk('stuck', 'Shopify fetch failed: 401 for https://stuck.example.com', 24 * 49); // ongoing, 7 weeks
+        $mk('slow', 'cURL error 28: Connection timed out after 10002 milliseconds', 12);  // watching: first slow night
+        $mk('slower', 'cURL error 28: Connection timed out after 10002 milliseconds', 60); // ongoing: repeated
+        $mk('throttled', 'Shopify fetch failed: 429 for https://t.example.com', 2);       // watching: our problem
+
+        $reporter = app(DailyOpsReport::class);
+        $report = $reporter->build(24);
+        $errors = $report['import_errors'];
+
+        $this->assertSame(5, $errors['count']);
+        $this->assertSame(['fresh'], array_column($errors['groups']['new'], 'slug'));
+        $this->assertSame(['stuck', 'slower'], array_column($errors['groups']['ongoing'], 'slug'), 'ongoing sorted oldest first');
+        $this->assertEqualsCanonicalizing(['slow', 'throttled'], array_column($errors['groups']['watching'], 'slug'));
+
+        $stuck = collect($errors['list'])->firstWhere('slug', 'stuck');
+        $this->assertSame('blocked', $stuck['kind']);
+        $this->assertSame(49, $stuck['age_days']);
+        $this->assertNotNull($stuck['failing_since_label']);
+
+        $this->assertTrue($reporter->isNotable($report), 'a roaster that started failing today is notable');
+    }
+
+    public function test_only_ongoing_errors_do_not_make_the_day_notable(): void
+    {
+        // The seven-week-old 401s. They are listed, with their age, but they
+        // no longer put "action needed" in the subject every single morning.
+        SystemHeartbeat::ping('mail.sent');
+        $this->backdate($this->roaster('stuck', 'Stuck Coffee', [
+            'last_import_status' => 'error',
+            'last_import_error' => 'Shopify fetch failed: 401 for https://stuck.example.com',
+            'import_failing_since' => now()->subDays(49),
+        ]), 72);
+
+        $reporter = app(DailyOpsReport::class);
+        $report = $reporter->build(24);
+
+        $this->assertSame(1, $report['import_errors']['ongoing']);
+        $this->assertSame(0, $report['import_errors']['new']);
+        $this->assertFalse($reporter->isNotable($report));
+
+        $html = (new DailyOpsSummary($report, false))->render();
+        $this->assertStringContainsString('Ongoing', $html);
+        $this->assertStringContainsString('Stuck Coffee', $html);
+        $this->assertStringContainsString('(49d)', $html);
+        $this->assertStringContainsString('nothing new needs attention', $html);
+    }
+
+    public function test_rejections_split_new_from_ongoing_and_hide_reviewed_rows(): void
+    {
+        SystemHeartbeat::ping('mail.sent');
+        $src = $this->roaster('src', 'Source Coffee');
+        $this->backdate($src, 72);
+
+        $mkRow = fn (string $name, ?int $firstSeenHours, bool $reviewed = false) => ScraperRejectionLog::create([
+            'roaster_id' => $src->id, 'coffee_id' => null, 'coffee_name' => $name,
+            'reason' => ScraperRejectionLog::REASON_CPG_OUT_OF_BAND,
+            'context' => ['price' => 69, 'grams' => 3000, 'cpg' => 2.3, 'source_size_label' => '3 kg',
+                'suspected' => ScraperRejectionLog::SUSPECT_BULK_PRICING],
+            'first_seen_at' => $firstSeenHours === null ? null : now()->subHours($firstSeenHours),
+            'reviewed_at' => $reviewed ? now() : null,
+        ]);
+        $mkRow('Fresh Drop', 2);
+        $mkRow('Old Drop', 24 * 49);
+        $mkRow('Checked Drop', 24 * 49, reviewed: true);
+
+        $reporter = app(DailyOpsReport::class);
+        $report = $reporter->build(24);
+        $rej = $report['rejections'];
+
+        $this->assertSame(2, $rej['total'], 'reviewed row not counted');
+        $this->assertSame(1, $rej['new']);
+        $this->assertSame(1, $rej['ongoing']);
+        $this->assertSame(1, $rej['reviewed']);
+        $this->assertSame(['Fresh Drop'], array_column($rej['new_items'], 'coffee'));
+        $this->assertSame(['Old Drop'], array_column($rej['ongoing_items'], 'coffee'));
+        $this->assertNotContains('Checked Drop', array_column($rej['items'], 'coffee'));
+        $this->assertSame('plausible bulk pricing', $rej['new_items'][0]['suspected_label']);
+        $this->assertTrue($reporter->isNotable($report));
+
+        $html = (new DailyOpsSummary($report, true))->render();
+        $this->assertStringContainsString('new since yesterday', $html);
+        $this->assertStringContainsString('plausible bulk pricing', $html);
+        $this->assertStringContainsString('1 reviewed row(s) hidden', $html);
+        $this->assertStringContainsString('/admin/rejections', $html);
+        $this->assertStringNotContainsString('Checked Drop', $html);
+
+        // Retire the fresh one too and the day stops being notable.
+        ScraperRejectionLog::where('coffee_name', 'Fresh Drop')->update(['reviewed_at' => now()]);
+        $this->assertFalse($reporter->isNotable($reporter->build(24)));
     }
 }
