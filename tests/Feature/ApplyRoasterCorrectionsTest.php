@@ -511,6 +511,45 @@ class ApplyRoasterCorrectionsTest extends TestCase
         $this->assertSame($expected, Roaster::count());
     }
 
+    public function test_required_roaster_that_was_deactivated_is_reactivated_not_duplicated(): void
+    {
+        $expected = $this->requiredRoasterCount();
+        // The stub seeder's Hatch row, later auto-hidden when hatch.coffee died.
+        $hatch = $this->makeRoaster([
+            'name' => 'Hatch Coffee', 'slug' => 'hatch-coffee',
+            'city' => 'Toronto', 'region' => 'Ontario',
+            'website' => 'https://www.hatch.coffee', 'is_active' => false,
+        ]);
+
+        $this->artisan('roasters:apply-corrections')
+            ->expectsOutputToContain('reactivate: Hatch Coffee')
+            ->assertExitCode(0);
+
+        $this->assertSame(1, Roaster::whereRaw("LOWER(name) LIKE 'hatch%'")->count(), 'no duplicate Hatch row');
+        $hatch->refresh();
+        $this->assertTrue((bool) $hatch->is_active, 'hidden required roaster comes back');
+        $this->assertSame('https://hatchcrafted.com', $hatch->website, 'URL fix repoints the dead domain');
+        $this->assertSame('Markham', $hatch->city, 'address fix corrects the seeded city');
+        $this->assertSame('802 Cochrane Drive, Unit B', $hatch->street_address);
+        $this->assertSame('L3R 8C9', $hatch->postal_code);
+        $this->assertSame('manual', $hatch->address_source);
+        $this->assertSame($expected, Roaster::count());
+    }
+
+    public function test_hatch_is_created_in_markham_when_missing(): void
+    {
+        $this->artisan('roasters:apply-corrections')->assertExitCode(0);
+
+        $hatch = Roaster::where('slug', 'hatch-coffee')->first();
+        $this->assertNotNull($hatch);
+        $this->assertSame('Markham', $hatch->city);
+        $this->assertSame('Ontario', $hatch->region);
+        $this->assertSame('https://hatchcrafted.com', $hatch->website);
+        $this->assertTrue((bool) $hatch->is_active);
+        $this->assertEqualsWithDelta(43.8470, (float) $hatch->latitude, 0.0001);
+        $this->assertEqualsWithDelta(-79.3490, (float) $hatch->longitude, 0.0001);
+    }
+
     // ── --dry-run ────────────────────────────────────────────────────────
 
     public function test_dry_run_writes_nothing(): void
@@ -541,8 +580,9 @@ class ApplyRoasterCorrectionsTest extends TestCase
 
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
         $this->assertSame('https://hatchcrafted.com', $hatch->fresh()->website);
-        // 1 pre-existing (Hatch) + REQUIRED_ROASTERS count.
-        $this->assertSame(1 + $this->requiredRoasterCount(), Roaster::count());
+        // The pre-existing Hatch row IS one of the required roasters now, so
+        // it is matched (and repointed), not duplicated: total = the required count.
+        $this->assertSame($this->requiredRoasterCount(), Roaster::count());
     }
 
     // ── full-run integration ─────────────────────────────────────────────
