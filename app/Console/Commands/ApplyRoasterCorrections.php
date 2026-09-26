@@ -293,6 +293,19 @@ class ApplyRoasterCorrections extends Command
             'latitude' => 50.9982,
             'longitude' => -118.1953,
         ],
+        // Hatch's roastery + tasting bar: 802 Cochrane Dr, Unit B, Markham
+        // (per hatchcrafted.com/contact-us and Yelp). The seeder filed it under
+        // Toronto, so the city is overridden here. Coordinates are the
+        // Cochrane Drive block east of Woodbine Ave, not a building-level hit;
+        // the admin Geocode button refines them from the street address.
+        [
+            'match' => ['Hatch', 'Hatch Coffee', 'Hatch Coffee Roasters'],
+            'city' => 'Markham',
+            'street_address' => '802 Cochrane Drive, Unit B',
+            'postal_code' => 'L3R 8C9',
+            'latitude' => 43.8470,
+            'longitude' => -79.3490,
+        ],
     ];
 
     /**
@@ -357,6 +370,12 @@ class ApplyRoasterCorrections extends Command
         // source). Street address is in ADDRESS_FIXES so the pin lands on the
         // shop, not the town centroid.
         ['name' => 'Spilt Milk Coffee Roasters',    'city' => 'Revelstoke',      'region' => 'British Columbia', 'website' => 'https://spilt-milk.ca'],
+        // Markham's Hatch (hatchcrafted.com, Shopify). Named "Hatch Coffee" so
+        // it matches the row the original stub seeder created under that name
+        // (URL_FIXES already repoints it from the dead hatch.coffee domain); a
+        // hidden row is reactivated rather than duplicated. Street address in
+        // ADDRESS_FIXES, which also corrects the seeded city (Toronto → Markham).
+        ['name' => 'Hatch Coffee',                  'city' => 'Markham',         'region' => 'Ontario',          'website' => 'https://hatchcrafted.com'],
     ];
 
     public function handle(): int
@@ -454,7 +473,7 @@ class ApplyRoasterCorrections extends Command
     /** C) Create any of the 16 roasters that don't already exist. */
     private function ensureRequiredRoasters(bool $dry): int
     {
-        $this->line('C) Ensure 16 roasters exist');
+        $this->line('C) Ensure required roasters exist');
         $created = 0;
 
         foreach (self::REQUIRED_ROASTERS as $spec) {
@@ -464,6 +483,18 @@ class ApplyRoasterCorrections extends Command
                 ->first();
 
             if ($existing) {
+                // A required roaster that was soft-hidden (dead-domain or blocked
+                // expiry, or a manual deactivate) comes back rather than being
+                // duplicated under a new slug. Nothing else on the row is touched;
+                // URL_FIXES / ADDRESS_FIXES handle the website and address.
+                if (! $existing->is_active) {
+                    $this->line(sprintf('   %s reactivate: %s (id %d)', $dry ? '~' : '✓', $existing->name, $existing->id));
+                    if (! $dry) {
+                        $existing->update(['is_active' => true]);
+                    }
+                    $created++;
+                    continue;
+                }
                 $this->line(sprintf('   = exists: %s (id %d)', $existing->name, $existing->id));
                 continue;
             }
