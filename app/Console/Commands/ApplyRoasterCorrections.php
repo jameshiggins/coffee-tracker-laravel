@@ -281,6 +281,31 @@ class ApplyRoasterCorrections extends Command
             'latitude' => 53.5630794,
             'longitude' => -113.5275158,
         ],
+        // ── batch 3: 2026-09 additions ──
+        // Spilt Milk's shop is on 2nd St E at Mackenzie Ave in downtown
+        // Revelstoke. Coordinates are the downtown block, not a Nominatim
+        // building hit — precise enough for the map pin; the admin Geocode
+        // button refines them once the address is in the row.
+        [
+            'match' => ['Spilt Milk', 'Spilt Milk Coffee Roasters'],
+            'street_address' => '101 Second Street East',
+            'postal_code' => 'V0E 2S0',
+            'latitude' => 50.9982,
+            'longitude' => -118.1953,
+        ],
+        // Hatch's roastery + tasting bar: 802 Cochrane Dr, Unit B, Markham
+        // (per hatchcrafted.com/contact-us and Yelp). The seeder filed it under
+        // Toronto, so the city is overridden here. Coordinates are the
+        // Cochrane Drive block east of Woodbine Ave, not a building-level hit;
+        // the admin Geocode button refines them from the street address.
+        [
+            'match' => ['Hatch', 'Hatch Coffee', 'Hatch Coffee Roasters'],
+            'city' => 'Markham',
+            'street_address' => '802 Cochrane Drive, Unit B',
+            'postal_code' => 'L3R 8C9',
+            'latitude' => 43.8470,
+            'longitude' => -79.3490,
+        ],
     ];
 
     /**
@@ -339,6 +364,60 @@ class ApplyRoasterCorrections extends Command
         ['name' => 'Vancouver Island Coffee',       'city' => 'Cowichan Valley', 'region' => 'British Columbia', 'website' => 'https://vi.coffee'],
         ['name' => 'Fix Coffee',                    'city' => 'Vancouver',       'region' => 'British Columbia', 'website' => 'https://www.fixcoffee.ca'],
         ['name' => 'Milano Coffee',                 'city' => 'Vancouver',       'region' => 'British Columbia', 'website' => 'https://milanocoffee.ca'],
+        // ── 2026-09 additions ──
+        // Revelstoke's Australian-style roaster + cafe (Shopify store at
+        // spilt-milk.ca; the /collections/coffee catalogue is the import
+        // source). Street address is in ADDRESS_FIXES so the pin lands on the
+        // shop, not the town centroid.
+        ['name' => 'Spilt Milk Coffee Roasters',    'city' => 'Revelstoke',      'region' => 'British Columbia', 'website' => 'https://spilt-milk.ca'],
+        // Markham's Hatch (hatchcrafted.com, Shopify). Named "Hatch Coffee" so
+        // it matches the row the original stub seeder created under that name
+        // (URL_FIXES already repoints it from the dead hatch.coffee domain); a
+        // hidden row is reactivated rather than duplicated. Street address in
+        // ADDRESS_FIXES, which also corrects the seeded city (Toronto → Markham).
+        ['name' => 'Hatch Coffee',                  'city' => 'Markham',         'region' => 'Ontario',          'website' => 'https://hatchcrafted.com'],
+
+        // ── 2026-10-03: Nanaimo ─────────────────────────────────────────
+        // Small-batch Shopify roaster in downtown Nanaimo, ships Canada-wide.
+        // Site verified live on the bare host (no www redirect).
+        ['name' => 'Cognito Coffee Roasters',       'city' => 'Nanaimo',         'region' => 'British Columbia', 'website' => 'https://cognitocoffeeroasters.ca'],
+
+        // ── 2026-10-03 light-roast sweep ────────────────────────────────
+        // Goal: extend the directory with roasters whose house style matches
+        // the light/bright end of what's already indexed (Subtext, Monogram,
+        // Luna, Rogue Wave, Saint-Henri). The coffees.roast_level column is
+        // ~88% NULL, so it can't be used to characterize the existing set —
+        // selection is from each roaster's own catalog instead.
+        //
+        // Every URL below was fetched live: resolves on the host as written
+        // (no cross-host redirect), serves a bean catalog, ships beyond its
+        // own city. Rejected on inspection, do NOT re-add without new
+        // evidence: Paradigm Spark + Monigram (catalogs are Medium/Dark
+        // blends, Monigram's flagship is literally "The Dark Roast"), Kittel
+        // ("Foncé" blend, cocoa/roasted-nut notes), Weird Harbour (espresso
+        // bar, serves Detour — does not roast), Canadian Roasting Society
+        // (B2B co-roasting facility, no retail), Venn Coffee (pickup only),
+        // Oidé Coffee (storefront resells Dak and Hatch — an import would
+        // file Hatch's beans under Oidé's roaster_id), Sine Coffee Labs
+        // (root 404s on both bare and www hosts).
+
+        // Tier 1 — light roast evidenced on the roaster's own catalog/press.
+        ['name' => 'Little Victories Coffee Roasters', 'city' => 'Ottawa',   'region' => 'Ontario',          'website' => 'https://www.lvcoffee.ca'],
+        ['name' => 'Rampage Coffee Co.',            'city' => 'Saskatoon',   'region' => 'Saskatchewan',     'website' => 'https://rampagecoffee.com'],
+        ['name' => 'Stereo Coffee Roasters',        'city' => 'Toronto',     'region' => 'Ontario',          'website' => 'https://stereocoffee.com'],
+        ['name' => 'Elysian Coffee',                'city' => 'Vancouver',   'region' => 'British Columbia', 'website' => 'https://elysiancoffee.com'],
+        ['name' => 'Hale Coffee Co.',               'city' => 'Toronto',     'region' => 'Ontario',          'website' => 'https://halecoffee.com'],
+
+        // Tier 2 — third-wave profile match (process-forward single origins,
+        // filter emphasis, no dark-roast flagship) but the site states no
+        // roast level. Same standing as most existing rows; the importer
+        // fills roast_level from product pages where they declare it.
+        ['name' => 'Nektar Caféologue',             'city' => 'Quebec City', 'region' => 'Quebec',           'website' => 'https://nektar.ca'],
+        ['name' => 'ZAB Café',                      'city' => 'Montréal',    'region' => 'Quebec',           'website' => 'https://zabcafe.com'],
+        ['name' => 'Café Humble Lion',              'city' => 'Montréal',    'region' => 'Quebec',           'website' => 'https://shop.humblelion.com'],
+        ['name' => 'Epoch Chemistry Coffee',        'city' => 'Moncton',     'region' => 'New Brunswick',    'website' => 'https://epoch.coffee'],
+        ['name' => 'Bricolage Coffee Roasters',     'city' => 'Winnipeg',    'region' => 'Manitoba',         'website' => 'https://www.bricolagecoffeeroasters.com'],
+        ['name' => 'Anecdote Coffee Roasters',      'city' => 'Edmonton',    'region' => 'Alberta',          'website' => 'https://anecdotecoffee.ca'],
     ];
 
     public function handle(): int
@@ -436,7 +515,7 @@ class ApplyRoasterCorrections extends Command
     /** C) Create any of the 16 roasters that don't already exist. */
     private function ensureRequiredRoasters(bool $dry): int
     {
-        $this->line('C) Ensure 16 roasters exist');
+        $this->line('C) Ensure required roasters exist');
         $created = 0;
 
         foreach (self::REQUIRED_ROASTERS as $spec) {
@@ -446,6 +525,18 @@ class ApplyRoasterCorrections extends Command
                 ->first();
 
             if ($existing) {
+                // A required roaster that was soft-hidden (dead-domain or blocked
+                // expiry, or a manual deactivate) comes back rather than being
+                // duplicated under a new slug. Nothing else on the row is touched;
+                // URL_FIXES / ADDRESS_FIXES handle the website and address.
+                if (! $existing->is_active) {
+                    $this->line(sprintf('   %s reactivate: %s (id %d)', $dry ? '~' : '✓', $existing->name, $existing->id));
+                    if (! $dry) {
+                        $existing->update(['is_active' => true]);
+                    }
+                    $created++;
+                    continue;
+                }
                 $this->line(sprintf('   = exists: %s (id %d)', $existing->name, $existing->id));
                 continue;
             }

@@ -205,6 +205,14 @@ class SharedTest extends TestCase
             'french press title' => ['Timemore - Little U French Press', '', []],
             'recipe card title'  => ['Espresso Recipe Card', '', ['merch']],
             'alt milk title'     => ['Alternative M*lk - Oat, Almond, Soy', '', []],
+            // percolators / vacuum syphons / OXO brew hardware — brew gear that
+            // matches the tasting-form brew methods but is never a bag of beans
+            'percolator title'   => ['Bialetti - 6 Cup Stovetop Percolator', '', []],
+            'percolators plural' => ['Stainless Percolators - 9 Cup', '', ['Brewer']],
+            'syphon title'       => ['Yama - Tabletop Syphon 5 Cup', '', []],
+            'siphon spelling'    => ['Vacuum Siphon Brewer - Glass', '', []],
+            'oxo brand title'    => ['OXO - Brew Rapid Brewer', '', ['Brewer']],
+            'oxo no gear noun'   => ['OXO - 8 Cup Replacement Carafe Lid', '', []],
             // gear whose ONLY coffee-ish signal is a loose tag substring
             // ("SmartrrFilter:Brewers" used to match the "filter" marker,
             //  "Espresso Accessories" used to match "espresso")

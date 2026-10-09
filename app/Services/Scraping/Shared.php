@@ -429,7 +429,8 @@ final class Shared
             'filter\s+papers?', 'paper\s+filters?', 'jugs?', 'flasks?', 'spoons?',
             'scoops?', 'scales?', 'thermometers?', 'timers?', 'tampers?',
             'cups?', 'glasses?', 'aeropress', 'french\s+press', 'chemex', 'v60',
-            'kalita', 'moka', 'hario', 'fellow', 'kinto', 'acaia',
+            'percolators?', 'syphons?', 'siphons?',
+            'kalita', 'moka', 'hario', 'fellow', 'kinto', 'acaia', 'oxo',
             // Reusable-cup brands. These are concatenated words in product
             // titles (HuskeeCup, KeepCup, JoCo) that wouldn't match a `\bcups?\b`
             // boundary, so list them explicitly.
@@ -553,6 +554,11 @@ final class Shared
             'portafilter', 'puck', 'cupping\s+(?:bowl|bowls|spoon|spoons|set|kit)',
             'cupper\'?s\s+kit', 'gooseneck', 'decanter', 'french\s+press',
             'aeropress', 'chemex', 'moka\s+pot', 'cold\s+brew\s+(?:maker|tower|kit)',
+            // Percolators, vacuum/syphon brewers, and OXO's brew hardware.
+            // This list is prefix-matched (the pattern below has a leading \b
+            // only), so these carry their own trailing \b — otherwise 'syphon'
+            // would also fire on an unrelated word that merely starts with it.
+            'percolators?\b', 'syphons?\b', 'siphons?\b', 'oxo\b',
             'milk\s+pitcher', 'knock\s+box', 'drip\s+stand', 'brew\s+stand',
             'dripper\s+holder', 'dripper\s+stand', 'paper\s+filters?', 'filter\s+papers?',
             'reusable\s+filter', 'metal\s+filter', 'cloth\s+filter', 'abaca',

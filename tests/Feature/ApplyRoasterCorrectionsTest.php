@@ -541,8 +541,11 @@ class ApplyRoasterCorrectionsTest extends TestCase
 
         $this->artisan('roasters:apply-corrections')->assertExitCode(0);
         $this->assertSame('https://hatchcrafted.com', $hatch->fresh()->website);
-        // 1 pre-existing (Hatch) + REQUIRED_ROASTERS count.
-        $this->assertSame(1 + $this->requiredRoasterCount(), Roaster::count());
+        // Hatch Coffee is itself a REQUIRED_ROASTERS entry (same slug), so the
+        // pre-created row is matched and skipped rather than added to — the
+        // total is the required count, NOT 1 + it. The row stays active, so
+        // the reactivate branch doesn't fire either.
+        $this->assertSame($this->requiredRoasterCount(), Roaster::count());
     }
 
     // ── full-run integration ─────────────────────────────────────────────
